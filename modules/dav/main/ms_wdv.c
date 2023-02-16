@@ -168,7 +168,6 @@ static dav_error *mswdv_combined_lock(request_rec *r)
     const char *lock_timeout_hdr;
     dav_locktoken *lock_token;
     time_t lock_timeout = 0;
-    apr_status_t status;
     dav_error *err = NULL;
     const dav_hooks_locks *locks_hooks = DAV_GET_HOOKS_LOCKS(r);
     dav_lockdb *lockdb = NULL;
@@ -180,7 +179,6 @@ static dav_error *mswdv_combined_lock(request_rec *r)
     int timeout_zero = 0;
     int token_match = 0;
     int lock_exists = 0;
-    int locked_by_other = 0;
     /* action */
     const char *failmsg = NULL;
     int http_error = HTTP_BAD_REQUEST;
@@ -227,7 +225,7 @@ static dav_error *mswdv_combined_lock(request_rec *r)
     }
 
     /*
-     * Determine is token_match, lock_exists and locked_by_other
+     * Determine is token_match, lock_exists and owner
      */
     if ((err = dav_get_resource(r, 0, 0, &resource)) != NULL)
         goto out;
@@ -260,7 +258,8 @@ static dav_error *mswdv_combined_lock(request_rec *r)
 
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
                   "%s lock_exists = %d, owner = \"%s\", "
-                  "token_match = %d, lock_timeout = %ld, timeout_zero = %d",
+                  "token_match = %d, lock_timeout = %" APR_TIME_T_FMT
+                  ", timeout_zero = %d",
                   __func__, lock_exists, owner ? owner : "-", token_match,
                   lock_timeout, timeout_zero);
 
@@ -410,7 +409,7 @@ static dav_error *mswdv_combined_lock(request_rec *r)
 done:
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
                   "%s failmsg = \"%s\", action = %s%s%s%s%s",
-                  __func__, failmsg,
+                  __func__, failmsg ? failmsg : "",
                   action == LOCK ? "LOCK" : "",
                   action == UNLOCK ? "UNLOCK" : "",
                   action == REFRESH ? "REFRESH" : "",
@@ -493,7 +492,7 @@ done:
         apr_table_setn(r->headers_out, "X-MSDAVEXTLockTimeout",
                        newlock->timeout == DAV_TIMEOUT_INFINITE ?
                        "Infinite" :
-                       apr_psprintf(r->pool, "Second-%d",
+                       apr_psprintf(r->pool, "Second-%" APR_TIME_T_FMT,
                                       newlock->timeout - time(NULL)));
 
         /* Add a If: lock header to palcate further PUT processing */
@@ -520,7 +519,6 @@ static dav_error *mswdv_combined_propfind(request_rec *r)
     apr_bucket_brigade *bbsub;
     apr_bucket_brigade *bb;
     ap_filter_t *f;
-    apr_bucket *b;
     request_rec *rr = NULL;
     apr_off_t length;
     apr_status_t status;
@@ -554,8 +552,8 @@ static dav_error *mswdv_combined_propfind(request_rec *r)
 
     bb = apr_brigade_create(r->pool,r->output_filters->c->bucket_alloc);
 
-    apr_brigade_printf(bb, NULL, NULL,
-                       "%016" APR_UINT64_T_HEX_FMT, length);
+    apr_brigade_printf(bb, NULL, NULL, "%016" APR_UINT64_T_HEX_FMT,
+                       (apr_uint64_t)length);
 
     APR_BRIGADE_CONCAT(bb, bbsub);
 
@@ -571,8 +569,8 @@ static dav_error *mswdv_combined_propfind(request_rec *r)
         return dav_new_error(r->pool, HTTP_BAD_REQUEST, 0, 0,
                              "Not a plain file");
 
-    apr_brigade_printf(bb, NULL, NULL,
-                       "%016" APR_UINT64_T_HEX_FMT, rr->finfo.size);
+    apr_brigade_printf(bb, NULL, NULL, "%016" APR_UINT64_T_HEX_FMT,
+                       (apr_uint64_t)rr->finfo.size);
 
     ap_set_content_type(r, "multipart/MSDAVEXTPrefixEncoded");
 
@@ -588,21 +586,12 @@ static dav_error *mswdv_combined_propfind(request_rec *r)
  */
 static dav_error *mswdv_combined_proppatch(request_rec *r)
 {
-    dav_error *err = NULL;
-    apr_bucket_brigade *bbsub;
     apr_bucket_brigade *bb;
-    apr_bucket *b;
     apr_status_t status;
-    char *proppach_data;
     apr_size_t len = 16;
     apr_off_t proppatch_len;
     char proppatch_len_str[16 + 1];
     char *proppatch_data;
-    apr_off_t index;
-    apr_size_t proppatch_datalen;
-    ap_filter_t *f;
-    request_rec *rr;
-    int ret;
 
     bb = apr_brigade_create(r->pool, r->connection->bucket_alloc);
 
