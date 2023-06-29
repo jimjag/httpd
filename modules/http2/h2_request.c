@@ -38,6 +38,7 @@
 
 #include "h2_private.h"
 #include "h2_config.h"
+#include "h2_conn_ctx.h"
 #include "h2_push.h"
 #include "h2_request.h"
 #include "h2_util.h"
@@ -292,8 +293,14 @@ apr_bucket *h2_request_create_bucket(const h2_request *req, request_rec *r)
     if (!ap_cstr_casecmp("CONNECT", req->method))  {
         uri = req->authority;
     }
-    else if (req->scheme && (ap_cstr_casecmp(req->scheme, "http") &&
-                             ap_cstr_casecmp(req->scheme, "https")))  {
+    else if (h2_config_cgeti(c, H2_CONF_PROXY_REQUESTS)) {
+        /* Forward proxying: always absolute uris */
+        uri = apr_psprintf(r->pool, "%s://%s%s",
+                           req->scheme, req->authority,
+                           req->path ? req->path : "");
+    }
+    else if (req->scheme && ap_cstr_casecmp(req->scheme, "http")
+             && ap_cstr_casecmp(req->scheme, "https")) {
         /* Client sent a non-http ':scheme', use an absolute URI */
         uri = apr_psprintf(r->pool, "%s://%s%s",
                            req->scheme, req->authority, req->path ? req->path : "");
@@ -378,7 +385,11 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
     /* Time to populate r with the data we have. */
     r->request_time = req->request_time;
     AP_DEBUG_ASSERT(req->authority);
-    if (is_connect) {
+    if (req->http_status != H2_HTTP_STATUS_UNSET) {
+        access_status = req->http_status;
+        goto die;
+    }
+    else if (is_connect) {
       /* CONNECT MUST NOT have scheme or path */
         r->the_request = apr_psprintf(r->pool, "%s %s HTTP/2.0",
                                       req->method, req->authority);
@@ -396,6 +407,30 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
             access_status = HTTP_BAD_REQUEST;
             goto die;
         }
+    }
+    else if (req->protocol) {
+      ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10470)
+                    "':protocol: %s' header present in %s request",
+                    req->protocol, req->method);
+      access_status = HTTP_BAD_REQUEST;
+      goto die;
+    }
+    else if (h2_config_cgeti(c, H2_CONF_PROXY_REQUESTS)) {
+        if (!req->scheme) {
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10468)
+                          "H2ProxyRequests on, but request misses :scheme");
+            access_status = HTTP_BAD_REQUEST;
+            goto die;
+        }
+        if (!req->authority) {
+            ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, APLOGNO(10469)
+                          "H2ProxyRequests on, but request misses :authority");
+            access_status = HTTP_BAD_REQUEST;
+            goto die;
+        }
+        r->the_request = apr_psprintf(r->pool, "%s %s://%s%s HTTP/2.0",
+                                      req->method, req->scheme, req->authority,
+                                      req->path ? req->path : "");
     }
     else if (req->scheme && ap_cstr_casecmp(req->scheme, "http")
              && ap_cstr_casecmp(req->scheme, "https")) {
@@ -517,6 +552,16 @@ request_rec *h2_create_request_rec(const h2_request *req, conn_rec *c,
     return r;
 
 die:
+    if (!r->method) {
+        /* if we fail early, `r` is not properly initialized for error
+         * processing which accesses fields in message generation.
+         * Make a best effort. */
+        if (!r->the_request) {
+                r->the_request = apr_psprintf(r->pool, "%s %s HTTP/2.0",
+                                      req->method, req->path);
+        }
+        ap_parse_request_line(r);
+    }
     ap_log_cerror(APLOG_MARK, APLOG_TRACE2, 0, c,
                   "ap_die(%d) for %s", access_status, r->the_request);
     ap_die(access_status, r);

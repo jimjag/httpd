@@ -806,6 +806,12 @@ static void splitout_queryargs(request_rec *r, int flags)
     int qsdiscard = flags & RULEFLAG_QSDISCARD;
     int qslast = flags & RULEFLAG_QSLAST;
 
+    if (flags & RULEFLAG_QSNONE) {
+        rewritelog(r, 2, NULL, "discarding query string, no parse from substitution");
+        r->args = NULL;
+        return;
+    }
+
     /* don't touch, unless it's a scheme for which a query string makes sense.
      * See RFC 1738 and RFC 2368.
      */
@@ -846,10 +852,6 @@ static void splitout_queryargs(request_rec *r, int flags)
            else if (r->args[len-1] == '&') {
                r->args[len-1] = '\0';
            }
-        }
-        if (flags & RULEFLAG_QSNONE) {
-            rewritelog(r, 2, NULL, "discarding query string, no parse from substitution");
-            r->args = NULL;
         }
 
         rewritelog(r, 3, NULL, "split uri=%s -> uri=%s, args=%s", olduri,
@@ -3907,15 +3909,20 @@ static const char *cmd_rewriterule(cmd_parms *cmd, void *in_dconf,
     }
 
     if (*(a2_end-1) == '?') {
-        if (!(newrule->flags & RULEFLAG_QSAPPEND) &&
-            !(newrule->flags & RULEFLAG_QSLAST)) {
-            /* Rule ends with a literal ?, make sure we don't end up with any query */
-            newrule->flags |= RULEFLAG_QSNONE;
+        /* a literal ? at the end of the unsubstituted rewrite rule */
+        if (newrule->flags & RULEFLAG_QSAPPEND) {
+           /* with QSA, splitoutqueryargs will safely handle it if RULEFLAG_QSLAST is set */
+           newrule->flags |= RULEFLAG_QSLAST;
         }
+        else {
+            /* avoid getting a a query string via inadvertent capture */
+            newrule->flags |= RULEFLAG_QSNONE;
+            /* trailing ? has done its job, but splitoutqueryargs will not chop it off */ 
+            *(a2_end-1) = '\0'; 
+       }
     }
     else if (newrule->flags & RULEFLAG_QSDISCARD) {
         if (NULL == ap_strchr(newrule->output, '?')) {
-            /* QSD and no literal ? in substitution, make sure we don't end up with any query */
             newrule->flags |= RULEFLAG_QSNONE;
         }
     }
