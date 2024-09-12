@@ -4523,20 +4523,6 @@ static rule_return_type apply_rewrite_rule(rewriterule_entry *p,
      * ourself).
      */
     if (p->flags & RULEFLAG_PROXY) {
-        /* For rules evaluated in server context, the mod_proxy fixup
-         * hook can be relied upon to escape the URI as and when
-         * necessary, since it occurs later.  If in directory context,
-         * the ordering of the fixup hooks is forced such that
-         * mod_proxy comes first, so the URI must be escaped here
-         * instead.  See PR 39746, 46428, and other headaches. */
-        if (ctx->perdir && (p->flags & RULEFLAG_NOESCAPE) == 0) {
-            char *old_filename = r->filename;
-
-            r->filename = ap_escape_uri(r->pool, r->filename);
-            rewritelog(r, 2, ctx->perdir, "escaped URI in per-dir context "
-                       "for proxy, %s -> %s", old_filename, r->filename);
-        }
-
         fully_qualify_uri(r);
 
         rewritelog(r, 2, ctx->perdir, "forcing proxy-throughput with %s",
@@ -5085,7 +5071,7 @@ static int hook_uri2file(request_rec *r)
             }
             if ((r->args != NULL)
                 && ((r->proxyreq == PROXYREQ_PROXY)
-                    || (rulestatus == ACTION_NOESCAPE))) {
+                    || apr_table_get(r->notes, "proxy-nocanon"))) {
                 /* see proxy_http:proxy_http_canon() */
                 r->filename = apr_pstrcat(r->pool, r->filename,
                                           "?", r->args, NULL);
@@ -5388,13 +5374,18 @@ static int hook_fixup(request_rec *r)
                 return HTTP_FORBIDDEN;
             }
 
-            /* make sure the QUERY_STRING and
-             * PATH_INFO parts get incorporated
+            if (rulestatus == ACTION_NOESCAPE) {
+                apr_table_setn(r->notes, "proxy-nocanon", "1");
+            }
+
+            /* make sure the QUERY_STRING gets incorporated in the case
+             * [NE] was specified on the Proxy rule. We are preventing
+             * mod_proxy canon handler from incorporating r->args as well
+             * as escaping the URL.
              * (r->path_info was already appended by the
              * rewriting engine because of the per-dir context!)
              */
-            if (r->args != NULL) {
-                /* see proxy_http:proxy_http_canon() */
+            if ((r->args != NULL) && apr_table_get(r->notes, "proxy-nocanon")) {
                 r->filename = apr_pstrcat(r->pool, r->filename,
                                           "?", r->args, NULL);
             }
@@ -5697,10 +5688,7 @@ static void ap_register_rewrite_mapfunc(char *name, rewrite_mapfunc_t *func)
 
 static void register_hooks(apr_pool_t *p)
 {
-    /* fixup after mod_proxy, so that the proxied url will not
-     * escaped accidentally by mod_proxy's fixup.
-     */
-    static const char * const aszPre[]={ "mod_proxy.c", NULL };
+    static const char * const aszModProxy[] = { "mod_proxy.c", NULL };
 
     /* make the hashtable before registering the function, so that
      * other modules are prevented from accessing uninitialized memory.
@@ -5712,10 +5700,12 @@ static void register_hooks(apr_pool_t *p)
     ap_hook_pre_config(pre_config, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_post_config(post_config, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_child_init(init_child, NULL, NULL, APR_HOOK_MIDDLE);
-
-    ap_hook_fixups(hook_fixup, aszPre, NULL, APR_HOOK_FIRST);
+    
+    /* allow to change the uri before mod_proxy takes over it */
+    ap_hook_translate_name(hook_uri2file, NULL, aszModProxy, APR_HOOK_FIRST);
+    /* fixup before mod_proxy so that a [P] URL gets fixed up there */
+    ap_hook_fixups(hook_fixup, NULL, aszModProxy, APR_HOOK_FIRST);
     ap_hook_fixups(hook_mimetype, NULL, NULL, APR_HOOK_LAST);
-    ap_hook_translate_name(hook_uri2file, NULL, NULL, APR_HOOK_FIRST);
 }
 
     /* the main config structure */
