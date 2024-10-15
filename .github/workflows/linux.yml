@@ -67,11 +67,11 @@ jobs:
             env: |
               TEST_ARGS=-order=random
           # -------------------------------------------------------------------------
-          - name: GCC 10 maintainer-mode w/-Werror, install + VPATH
+          - name: GCC 14 maintainer-mode w/-Werror, install + VPATH
             config: --enable-mods-shared=reallyall --enable-maintainer-mode
             notest-cflags: -Werror -O2
             env: |
-              CC=gcc-10
+              CC=gcc-14
               TEST_VPATH=1
               TEST_INSTALL=1
               SKIP_TESTING=1
@@ -279,6 +279,7 @@ jobs:
               APR_VERSION=1.7.4
               APU_VERSION=1.6.3
               APU_CONFIG="--without-crypto"
+            pkgs: subversion
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.2 -Werror
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
@@ -288,6 +289,7 @@ jobs:
               APR_VERSION=1.7.4
               APU_VERSION=1.6.3
               APU_CONFIG="--without-crypto"
+            pkgs: subversion
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.2 no-engine
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
@@ -297,6 +299,7 @@ jobs:
               APR_VERSION=1.7.4
               APU_VERSION=1.6.3
               APU_CONFIG="--without-crypto"
+            pkgs: subversion
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.3 no-engine -Werror
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
@@ -307,6 +310,7 @@ jobs:
               APR_VERSION=1.7.4
               APU_VERSION=1.6.3
               APU_CONFIG="--without-crypto"
+            pkgs: subversion
           # -------------------------------------------------------------------------
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -315,10 +319,14 @@ jobs:
       CONFIG: ${{ matrix.config }}
     name: ${{ matrix.name }}
     steps:
+    # JOBID is used in the cache keys, created here as a hash of all
+    # properties of the environment, including the image OS version,
+    # compiler flags and any job-specific properties.
     - name: Set environment variables
       run: |
         echo "${{ matrix.env }}" >> $GITHUB_ENV
-        echo JOBID=`echo "${{ matrix.notest-cflags }} ${{ matrix.env }} ${{ matrix.config }}'"| md5sum - | sed 's/ .*//'` >> $GITHUB_ENV
+        echo JOBID=`echo "OS=$ImageOS ${{ matrix.notest-cflags }} ${{ matrix.env }} ${{ matrix.config }}" \
+           | md5sum - | sed 's/ .*//'` >> $GITHUB_ENV
     # https://github.com/actions/runner-images/issues/9491#issuecomment-1989718917
     - name: Workaround ASAN issue in Ubuntu 22.04
       run: sudo sysctl vm.mmap_rnd_bits=28
@@ -356,5 +364,6 @@ jobs:
       if: failure()
       with:
         name: error_log-${{ env.JOBID }}
-        path: test/perl-framework/t/logs/error_log
-
+        path: |
+          **/config.log
+          test/perl-framework/t/logs/error_log
