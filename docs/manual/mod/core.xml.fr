@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 1921259 -->
+<!-- English Revision: 1921399 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -1921,11 +1921,12 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"
     <tr><td><code>%{cuz}t</code></td>
         <td>L'heure actuelle au format ISO 8601 étendu (compact), avec les
 	microsecondes et la zone horaire au format standard ISO 8601:2000.
-	Depuis la version 2.4.58 seulement</td></tr>
+	Disponible depuis la version 2.4.58 seulement</td></tr>
 
-    <tr><td><code>%{&lt;%-format&gt;}t</code></td>
+    <tr><td><code>%{%-format}t</code></td>
         <td>L'heure actuelle formatée selon la fonction
-	<code>strftime(3)</code>. Depuis la version 2.4.58 seulement</td></tr>
+	<code>strftime(3)</code>. Disponible depuis la version 2.4.58
+	seulement</td></tr>
 
     <tr><td><code>%v</code></td>
         <td>Le nom de serveur canonique <directive

@@ -1778,10 +1778,11 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
 <tr><td><code>%{cuz}t</code></td>
         <td>L'heure actuelle au format ISO 8601 étendu (compact), avec les
 	microsecondes et la zone horaire au format standard ISO 8601:2000.
-	Depuis la version 2.4.58 seulement</td></tr>
-<tr class="odd"><td><code>%{&lt;%-format&gt;}t</code></td>
+	Disponible depuis la version 2.4.58 seulement</td></tr>
+<tr class="odd"><td><code>%{%-format}t</code></td>
         <td>L'heure actuelle formatée selon la fonction
-	<code>strftime(3)</code>. Depuis la version 2.4.58 seulement</td></tr>
+	<code>strftime(3)</code>. Disponible depuis la version 2.4.58
+	seulement</td></tr>
 <tr><td><code>%v</code></td>
         <td>Le nom de serveur canonique <code class="directive"><a href="#servername">ServerName</a></code> du serveur actuel.</td></tr>
 <tr class="odd"><td><code>%V</code></td>
