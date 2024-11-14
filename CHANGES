@@ -218,7 +218,7 @@ Changes with Apache 2.5.1
 
   *) mod_ssl: Disable the OpenSSL ENGINE API when OPENSSL_NO_ENGINE is set.
      Allow for "SSLCryptoDevice builtin" if the ENGINE API is not available,
-     notably with OpenSSL >= 3.  PR 68080.  [ Yann Ylavic, Joe Orton ]
+     notably with OpenSSL >= 3.  PR 68080.  [Yann Ylavic, Joe Orton]
 
   *) mod_headers: Fix a possible infinite recursion with the edit* action and
      empty matches.  [Yann Ylavic]
@@ -255,25 +255,28 @@ Changes with Apache 2.5.1
   *) mod_proxy: Avoid AH01059 parsing error for SetHandler "unix:" URLs
      in <Location> (incomplete fix in 2.4.62). PR 69160. [Yann Ylavic]
 
-  *) mod_ssl: Add SSL_HANDSHAKE_RTT environment variable.  [csmutz]
+  *) mod_ssl: Add SSL_HANDSHAKE_RTT environment variable.
+     [Charles Smutz <csmutz gmail.com>]
 
- * mod_md: fixed passing of the server environment variables to programs
-   started via MDMessageCmd and MDChallengeDns01 on *nix system.
-   See <https://github.com/icing/mod_md/issues/319>.
-   [Stefan Eissing]
+  *) mod_md: fixed passing of the server environment variables to programs
+     started via MDMessageCmd and MDChallengeDns01 on *nix system.
+     See <https://github.com/icing/mod_md/issues/319>.
+     [Stefan Eissing]
 
   *) mod_proxy: Honor parameters of ProxyPassMatch workers with substitution
      in the host name or port. PR 69233. [Yann Ylavic]
 
- * mod_md: Fix the reported "until" validity of a certificate in the status
-   handler. [Rainer Jung]
-   Fix possible NULL deref when logging the error that an authentication
-   resource could not be retrieved from the ACME server. [Stefan Eissing]
+  *) mod_md: Fix the reported "until" validity of a certificate in the status
+     handler. [Rainer Jung]
+
+  *) mod_md: Fix possible NULL deref when logging the error that an
+     authentication resource could not be retrieved from the ACME server.
+     [Stefan Eissing]
 
   *) mod_ssl: Improve compatibility with OpenSSL 3, fix build warnings about
      deprecated ENGINE_ API, honor OPENSSL_API_COMPAT setting while defaulting
      to compatibitily with version 1.1.1 (including ENGINEs / SSLCryptoDevice).
-     [ Yann Ylavic ]
+     [Yann Ylavic]
 
   *) core: Add "multipathtcp" Listen option. PR 69292.
      [Anthony Doeraene <anthony.doeraene hotmail.com>]
