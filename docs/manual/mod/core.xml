@@ -5139,7 +5139,7 @@ port</description>
       <li>Parsed port from <code>Host:</code> header</li>
       <li>Physical port (only with <directive>UseCanonicalPhysicalPort</directive> ON)</li>
       <li>Port provided in <directive module="core">Servername</directive></li>
-      <li>Default port</li>
+      <li>Default port for the scheme/protocol (such as 80 or 443)</li>
      </ol>
      </dd>
      <dt><code>UseCanonicalName On</code></dt>
@@ -5147,7 +5147,7 @@ port</description>
      <ol>
       <li>Port provided in <directive module="core">Servername</directive></li>
       <li>Physical port (only with <directive>UseCanonicalPhysicalPort</directive> ON)</li>
-      <li>Default port</li>
+      <li>Default port for the scheme/protocol (such as 80 or 443)</li>
      </ol>
      </dd>
     </dl>
