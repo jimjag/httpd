@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 1921399 -->
+<!-- English Revision: 1922169 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -5553,7 +5553,7 @@ host</context>
       <li>Port physique (seulement avec
       <directive>UseCanonicalPhysicalPort</directive> ON)</li>
       <li>Port indiqué dans <directive module="core">Servername</directive></li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
      <dt><code>UseCanonicalName On</code></dt>
@@ -5562,7 +5562,7 @@ host</context>
       <li>Port spécifié par <directive module="core">Servername</directive></li>
       <li>Port physique (seulement avec
       <directive>UseCanonicalPhysicalPort</directive> ON)</li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
     </dl>

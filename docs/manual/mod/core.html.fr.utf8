@@ -5639,7 +5639,7 @@ détermine son propre port</td></tr>
       <li>Port physique (seulement avec
       <code class="directive">UseCanonicalPhysicalPort</code> ON)</li>
       <li>Port indiqué dans <code class="directive"><a href="#servername">Servername</a></code></li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
      <dt><code>UseCanonicalName On</code></dt>
@@ -5648,7 +5648,7 @@ détermine son propre port</td></tr>
       <li>Port spécifié par <code class="directive"><a href="#servername">Servername</a></code></li>
       <li>Port physique (seulement avec
       <code class="directive">UseCanonicalPhysicalPort</code> ON)</li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
     </dl>
