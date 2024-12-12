@@ -4497,6 +4497,9 @@ static rule_return_type apply_rewrite_rule(rewriterule_entry *p,
              * rule like "RewriteRule ^/some/path(.*) $1" that is given a path
              * like "/some/pathscheme:..." to produce the fully qualified URL
              * "scheme:..." which could be misinterpreted later.
+             * Note: While this approach is broader to catch further possible
+             * cases the main immediate thread are RewriteRule results that
+             * would start with proxy:.
              */
             rewritelog(r, 3, ctx->perdir, "add root prefix: %s -> /%s",
                        newuri, newuri);
