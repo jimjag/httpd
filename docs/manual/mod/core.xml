@@ -474,9 +474,9 @@ NoDecode option available in 2.3.12 and later.</compatibility>
          to remain <em>set</em> while allowing any others to be set.
       </p></note>
 
-      <example>
+      <highlight language="config">
       AllowOverride Options=Indexes,MultiViews
-      </example>
+      </highlight>
       </dd>
     </dl>
 
@@ -5343,9 +5343,9 @@ recognized methods to modules.</p>
     has been specified by this directive. The intent is to limit access to
     paths derived from untrusted inputs.</p>
 
-    <example>
+    <highlight language="config">
     UNCList example.com other.example.com
-    </example>
+    </highlight>
 
     <note type="warning"><title>Security</title>
     <p>UNC paths accessed outside of request processing, such as during startup,
