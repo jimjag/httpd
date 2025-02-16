@@ -2758,7 +2758,7 @@ static void add_cookie(request_rec *r, char *s)
                 long exp_min;
 
                 exp_min = atol(expires);
-                if (exp_min) {
+                if (exp_min > 0) {
                     apr_time_exp_gmt(&tms, r->request_time
                                      + apr_time_from_sec((60 * exp_min)));
                     exp_time = apr_psprintf(r->pool, "%s, %.2d-%s-%.4d "
@@ -2768,6 +2768,9 @@ static void add_cookie(request_rec *r, char *s)
                                            apr_month_snames[tms.tm_mon],
                                            tms.tm_year+1900,
                                            tms.tm_hour, tms.tm_min, tms.tm_sec);
+                }
+                else if (exp_min < 0) {
+                    exp_time = "Thu, 01 Jan 1970 00:00:00 GMT";
                 }
             }
 
