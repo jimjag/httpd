@@ -1215,7 +1215,10 @@ version 2.3.9.</compatibility>
     By default, when the handling of a request requires no access
     to the data within a file -- for example, when delivering a
     static file -- Apache httpd uses sendfile to deliver the file contents
-    without ever reading the file if the OS supports it.</p>
+    without ever reading the file if the OS supports it. If SSL/TLS is used
+    for the connection, or if any <a href="../filter.html">output filter</a>
+    is configured which inspects or modifies the output, the sendfile mechanism
+    will not be used regardless of this configuration option.</p>
 
     <p>This sendfile mechanism avoids separate read and send operations,
     and buffer allocations. But on some platforms or within some
