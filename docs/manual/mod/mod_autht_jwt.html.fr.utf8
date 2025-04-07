@@ -37,7 +37,7 @@
 
     <p>Ce module permet à des frontaux d'interprétation de jetons comme
     <code class="module"><a href="../mod/mod_auth_bearer.html">mod_auth_bearer</a></code> d'authentifier les utilisateurs en
-    vérifiant un jeton JWT comme décrit dans la <a href="http://www.ietf.org/rfc/rfc7519.txt">RFC 7519</a>.</p>
+    vérifiant un jeton JWT comme décrit dans la <a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a>.</p>
 
     <p>Un jeton JWT est lu depuis l'en-tête <var>Authorization</var> avec un
     <var>auth-scheme</var> de <var>Bearer</var>.</p>
