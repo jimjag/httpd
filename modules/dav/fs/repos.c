@@ -2341,6 +2341,11 @@ int dav_fs_method_precondition(request_rec *r,
 {
     int ret = DECLINED;
 
+    if ((src && src->hooks != &dav_hooks_repository_fs)
+        || (dst && dst->hooks != &dav_hooks_repository_fs)) {
+        return ret;
+    }
+
     switch (r->method_number) {
     case M_COPY: /* FALLTHROUGH */
     case M_MOVE: /* FALLTHROUGH */
