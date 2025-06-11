@@ -1422,6 +1422,12 @@ static const char *ldap_func(ap_expr_eval_ctx_t *ctx, const void *data,
 }
 #endif
 
+static const char *escapehtml_func(ap_expr_eval_ctx_t *ctx, const void *data,
+                                   const char *arg)
+{
+    return ap_escape_html(ctx->p, arg);
+}
+
 static int replace_func_parse_arg(ap_expr_lookup_parms *parms)
 {
     const char *original = parms->arg;
@@ -2092,6 +2098,7 @@ static const struct expr_provider_single string_func_providers[] = {
     { ldap_func,            "ldap",           NULL, 0 },
 #endif
     { replace_func,         "replace",        replace_func_parse_arg, 0 },
+    { escapehtml_func,      "escapehtml",     NULL, 0 },
     { NULL, NULL, NULL}
 };
 
