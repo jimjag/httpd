@@ -4283,6 +4283,10 @@ test_str_l:
                             p->pattern - p->pskip, err);
                 rc = COND_RC_NOMATCH;
             }
+            else {
+                rc = (rc > 0) ? COND_RC_MATCH : COND_RC_NOMATCH;
+            }
+
             /* update briRC backref info */
             if (rc && !(p->flags & CONDFLAG_NOTMATCH)) {
                 ctx->briRC.source = source;

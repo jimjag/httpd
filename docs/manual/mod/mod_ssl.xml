@@ -579,10 +579,15 @@ SSLSessionCacheTimeout 600
 <directivesynopsis>
 <name>SSLEngine</name>
 <description>SSL Engine Operation Switch</description>
-<syntax>SSLEngine on|off|optional</syntax>
+<syntax>SSLEngine on|off</syntax>
 <default>SSLEngine off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context></contextlist>
+<compatibility>
+  Support for the "optional" argument was removed in 2.4.64. It enabled
+  RFC 2817 (TLS Upgrade) support.
+</compatibility>
+
 
 <usage>
 <p>
@@ -599,10 +604,6 @@ SSLEngine on
 &lt;/VirtualHost&gt;
 </highlight>
 </example>
-<p><directive>SSLEngine</directive> can be set to <code>optional</code>: 
-this enables support for
-<a href="https://www.rfc-editor.org/rfc/rfc2817">RFC 2817</a>.
-</p>
 </usage>
 </directivesynopsis>
 
