@@ -1650,7 +1650,7 @@ static int contains_name(const literal *lits, size_t llen, nghttp2_nv *nv)
     for (i = 0; i < llen; ++i) {
         lit = &lits[i];
         if (lit->len == nv->namelen
-            && !ap_cstr_casecmp(lit->name, (const char *)nv->name)) {
+            && !ap_cstr_casecmpn(lit->name, (const char *)nv->name, nv->namelen)) {
             return 1;
         }
     }
@@ -1677,7 +1677,7 @@ int h2_ignore_req_trailer(const char *name, size_t len)
     nghttp2_nv nv;
 
     nv.name = (uint8_t*)name;
-    nv.namelen = strlen(name);
+    nv.namelen = len;
     return (h2_req_ignore_header(&nv)
             || contains_name(H2_LIT_ARGS(IgnoredRequestTrailers), &nv));
 }
@@ -1687,7 +1687,7 @@ int h2_ignore_resp_trailer(const char *name, size_t len)
     nghttp2_nv nv;
 
     nv.name = (uint8_t*)name;
-    nv.namelen = strlen(name);
+    nv.namelen = len;
     return (contains_name(H2_LIT_ARGS(IgnoredResponseHeaders), &nv)
             || contains_name(H2_LIT_ARGS(IgnoredResponseTrailers), &nv));
 }
@@ -1705,7 +1705,7 @@ static apr_status_t req_add_header(apr_table_t *headers, apr_pool_t *pool,
         return APR_SUCCESS;
     }
     else if (nv->namelen == sizeof("cookie")-1
-             && !ap_cstr_casecmp("cookie", (const char *)nv->name)) {
+             && !ap_cstr_casecmpn("cookie", (const char *)nv->name, nv->namelen)) {
         existing = apr_table_get(headers, "cookie");
         if (existing) {
             /* Cookie header come separately in HTTP/2, but need
@@ -1723,7 +1723,7 @@ static apr_status_t req_add_header(apr_table_t *headers, apr_pool_t *pool,
         }
     }
     else if (nv->namelen == sizeof("host")-1
-             && !ap_cstr_casecmp("host", (const char *)nv->name)) {
+             && !ap_cstr_casecmpn("host", (const char *)nv->name, nv->namelen)) {
         if (apr_table_get(headers, "Host")) {
             return APR_SUCCESS; /* ignore duplicate */
         }
