@@ -7,7 +7,7 @@
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>Advanced Techniques with mod_rewrite - Serveur HTTP Apache Version 2.5</title>
+<title>Techniques avancées avec mod_rewrite - Serveur HTTP Apache Version 2.5</title>
 <link href="../style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="../style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
 <link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="../style/css/prettify.css" />
@@ -16,15 +16,21 @@
 
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body id="manual-page"><div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p>
 <p class="apache">Serveur HTTP Apache Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
-<a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">Serveur HTTP</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Rewrite</a></div><div id="page-content"><div id="preamble"><h1>Advanced Techniques with mod_rewrite</h1>
+<a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">Serveur HTTP</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Rewrite</a></div><div id="page-content"><div id="preamble"><h1>Techniques avancées avec mod_rewrite</h1>
 <div class="toplang">
-<p><span>Langues Disponibles: </span><a href="../en/rewrite/advanced.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
-<a href="../fr/rewrite/advanced.html" title="Français">&nbsp;fr&nbsp;</a></p>
+<p><span>Langues Disponibles: </span><a href="../de/rewrite/advanced.html" hreflang="de" rel="alternate" title="Deutsch">&nbsp;de&nbsp;</a> |
+<a href="../en/rewrite/advanced.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/rewrite/advanced.html" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/rewrite/advanced.html" title="Français">&nbsp;fr&nbsp;</a> |
+<a href="../ja/rewrite/advanced.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
+<a href="../ko/rewrite/advanced.html" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
+<a href="../tr/rewrite/advanced.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a> |
+<a href="../zh-cn/rewrite/advanced.html" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
 </div>
 <div class="outofdate">Cette traduction peut être périmée. Vérifiez la version
             anglaise pour les changements récents.</div>
@@ -33,7 +39,7 @@
 <p>Ce document complète la <a href="../mod/mod_rewrite.html">documentation de référence</a> du
     module <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>. Il présente un certain nombre
     de techniques avancées quant à
-    l'utilisation de mod_rewrite.</p>
+    l'utilisation de <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>.</p>
 
 
 
@@ -173,7 +179,7 @@ RewriteRule "^(.+)\.html$"          "/regenerate_page.cgi"   [PT,L]</pre>
 
     <dd>
       <p>Nous voulons répartir la charge de manière aléatoire entre
-      plusieurs serveurs en utilisant mod_rewrite.</p>
+      plusieurs serveurs en utilisant <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>.</p>
     </dd>
 
     <dt>Solution :</dt>
@@ -204,7 +210,7 @@ les autres, faites le figurer plusieurs fois dans la liste.</p>
    <dd>
 <p>Apache possède un module de répartition de charge -
 <code class="module"><a href="../mod/mod_proxy_balancer.html">mod_proxy_balancer</a></code> - beaucoup plus souple et présentant
-plus de fonctionnalités dans ce domaine que mod_rewrite.</p>
+plus de fonctionnalités dans ce domaine que <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>.</p>
    </dd>
   </dl>
 
@@ -252,7 +258,7 @@ RewriteRule   "^/~(<strong>([a-z])</strong>[a-z0-9]+)(.*)"  "/home/<strong>$2</s
 
     <dd>
     <p>Par défaut, la redirection vers un ancrage HTML ne fonctionne
-	pas, car mod_rewrite échappe le caractère <code>#</code> en le
+	pas, car <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> échappe le caractère <code>#</code> en le
 	transformant en <code>%23</code>, ce qui rend la redirection
 	inopérante.</p>
     </dd>
@@ -267,7 +273,7 @@ RewriteRule   "^/~(<strong>([a-z])</strong>[a-z0-9]+)(.*)"  "/home/<strong>$2</s
 
     <dt>Discussion :</dt>
     <dd>Cette technique fonctionne bien entendu pour tout autre
-    caractère spécial que mod_rewrite, par défaut, code pour insertion
+    caractère spécial que <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>, par défaut, code pour insertion
     dans une URL.</dd>
   </dl>
 
@@ -282,7 +288,7 @@ RewriteRule   "^/~(<strong>([a-z])</strong>[a-z0-9]+)(.*)"  "/home/<strong>$2</s
 
     <dd>
       <p>Nous voulons servir des contenus différents selon l'heure du
-      jour en utilisant mod_rewrite.</p>
+      jour en utilisant <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>.</p>
     </dd>
 
     <dt>Solution :</dt>
@@ -365,11 +371,17 @@ RewriteRule   "^/cheval/(.*)"   "/poney/$1" [E=<strong>rewritten:1</strong>]</pr
 
 </div></div>
 <div class="bottomlang">
-<p><span>Langues Disponibles: </span><a href="../en/rewrite/advanced.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
-<a href="../fr/rewrite/advanced.html" title="Français">&nbsp;fr&nbsp;</a></p>
+<p><span>Langues Disponibles: </span><a href="../de/rewrite/advanced.html" hreflang="de" rel="alternate" title="Deutsch">&nbsp;de&nbsp;</a> |
+<a href="../en/rewrite/advanced.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/rewrite/advanced.html" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/rewrite/advanced.html" title="Français">&nbsp;fr&nbsp;</a> |
+<a href="../ja/rewrite/advanced.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
+<a href="../ko/rewrite/advanced.html" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
+<a href="../tr/rewrite/advanced.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a> |
+<a href="../zh-cn/rewrite/advanced.html" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

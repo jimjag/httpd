@@ -297,7 +297,7 @@ Listen 192.170.2.5:8000
 <seealso><a href="../bind.html">Setting which addresses and ports Apache HTTP Server
     uses</a></seealso>
 <seealso><a
-href="http://wiki.apache.org/httpd/CouldNotBindToAddress">Further
+href="https://cwiki.apache.org/confluence/display/httpd/CouldNotBindToAddress">Further
 discussion of the <code>Address already in use</code> error message,
 including other causes.</a></seealso>
 </directivesynopsis>
@@ -454,7 +454,7 @@ simultaneously</description>
     <p>For threaded and hybrid servers (<em>e.g.</em> <module>event</module>
     or <module>worker</module>), <directive>MaxRequestWorkers</directive> restricts
     the total number of threads that will be available to serve clients.
-    For hybrid MPMs, the default value is <code>16</code> (<directive
+    For threaded and hybrid MPMs, the default value is <code>16</code> (<directive
     module="mpm_common">ServerLimit</directive>) multiplied by the value of
     <code>25</code> (<directive module="mpm_common"
     >ThreadsPerChild</directive>). Therefore, to increase <directive

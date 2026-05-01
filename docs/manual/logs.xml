@@ -363,9 +363,7 @@ CustomLog "logs/access_log" common
         beginning in 2), a redirection (codes beginning in 3), an
         error caused by the client (codes beginning in 4), or an
         error in the server (codes beginning in 5). The full list of
-        possible status codes can be found in the <a
-        href="http://www.w3.org/Protocols/rfc2616/rfc2616.txt">HTTP
-        specification</a> (RFC2616 section 10).</dd>
+        possible status codes can be found in the HTTP specification (<rfc>2616</rfc>) (RFC2616 section 10).</dd>
 
         <dt><code>2326</code> (<code>%b</code>)</dt>
 
@@ -665,8 +663,8 @@ CustomLog "|$/usr/local/apache/bin/rotatelogs   /var/log/access_log 86400" commo
     consider the following directives.</p>
 
     <highlight language="config">
-LogFormat "%v %l %u %t \"%r\" %&gt;s %b" comonvhost
-CustomLog "logs/access_log" comonvhost
+LogFormat "%v %p %h %l %u %t \"%r\" %&gt;s %b" commonvhost
+CustomLog "logs/access_log" commonvhost
     </highlight>
 
     <p>The <code>%v</code> is used to log the name of the virtual

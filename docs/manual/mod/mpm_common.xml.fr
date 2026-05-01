@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 1933179 -->
+<!-- English Revision: 1933179:1933599 (outdated) -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -323,7 +323,7 @@ Listen 192.170.2.5:8000
 <seealso><a href="../bind.html">Définition des adresses et ports
 qu'utilise le serveur HTTP Apache</a></seealso>
 <seealso><a
-href="http://wiki.apache.org/httpd/CouldNotBindToAddress">Autre
+href="https://cwiki.apache.org/confluence/display/httpd/CouldNotBindToAddress">Autre
 discussion à propos du message d'erreur <code>Address already in
 use</code>, citant d'autres causes possibles.</a></seealso>
 </directivesynopsis>

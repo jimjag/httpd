@@ -17,7 +17,7 @@
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">모듈</a> | <a href="../mod/quickreference.html">지시어들</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">용어</a> | <a href="../sitemap.html">사이트맵</a></p>
+<p class="menu"><a href="../mod/">모듈</a> | <a href="../mod/quickreference.html">지시어들</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">용어</a> | <a href="../sitemap.html">사이트맵</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -135,7 +135,7 @@
 <table class="directive">
 <tr><th><a href="directive-dict.html#Description">설명:</a></th><td>지정한 목적파일이나 라이브러리를 읽어들인다</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">문법:</a></th><td><code>LoadFile <em>filename</em> [<em>filename</em>] ...</code></td></tr>
-<tr><th><a href="directive-dict.html#Context">사용장소:</a></th><td>주서버설정</td></tr>
+<tr><th><a href="directive-dict.html#Context">사용장소:</a></th><td>주서버설정, 가상호스트</td></tr>
 <tr><th><a href="directive-dict.html#Status">상태:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">모듈:</a></th><td>mod_so</td></tr>
 </table>
@@ -157,7 +157,7 @@
 <tr><th><a href="directive-dict.html#Description">설명:</a></th><td>목적파일이나 라이브러리를 읽어들이고, 사용가능한
 모듈 목록에 추가한다</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">문법:</a></th><td><code>LoadModule <em>module filename</em></code></td></tr>
-<tr><th><a href="directive-dict.html#Context">사용장소:</a></th><td>주서버설정</td></tr>
+<tr><th><a href="directive-dict.html#Context">사용장소:</a></th><td>주서버설정, 가상호스트</td></tr>
 <tr><th><a href="directive-dict.html#Status">상태:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">모듈:</a></th><td>mod_so</td></tr>
 </table>
@@ -183,7 +183,7 @@
 <a href="../tr/mod/mod_so.html" hreflang="tr" rel="alternate" title="T&#252;rk&#231;e">&nbsp;tr&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">모듈</a> | <a href="../mod/quickreference.html">지시어들</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">용어</a> | <a href="../sitemap.html">사이트맵</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">모듈</a> | <a href="../mod/quickreference.html">지시어들</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">용어</a> | <a href="../sitemap.html">사이트맵</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

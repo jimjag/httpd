@@ -287,7 +287,7 @@ jobs:
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.4 -Werror
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
-            notest-cflags: -Werror -O2 -Wno-deprecated-declarations
+            notest-cflags: -Werror -O2
             env: |
               TEST_OPENSSL3=3.4.4
               APR_VERSION=1.7.6
@@ -316,13 +316,12 @@ jobs:
               APU_CONFIG="--without-crypto"
             pkgs: subversion
           # -------------------------------------------------------------------------
-          - name: OpenSSL ECH branch
+          - name: OpenSSL 4.0
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
             notest-cflags: -Werror -O2
             env: |
-              TEST_OPENSSL3=ech2
-              TEST_OPENSSL3_BRANCH=feature/ech
-              OPENSSL_CONFIG=no-engine
+              TEST_OPENSSL3=4.0.0
+              OPENSSL_CONFIG=
               APR_VERSION=1.7.6
               APU_VERSION=1.6.3
               APU_CONFIG="--without-crypto"
@@ -354,14 +353,14 @@ jobs:
                     liblua5.3-dev libbrotli-dev libcurl4-openssl-dev     
                     libnghttp2-dev libjansson-dev libpcre2-dev gdb
                     perl-doc libsasl2-dev ${{ matrix.pkgs }} check
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Cache installed libraries
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/root
         key: cache-libs-${{ env.JOBID }}
     - name: Cache CPAN modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/perl5
         key: cache-cpan-${{ env.JOBID }}

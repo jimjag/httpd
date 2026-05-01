@@ -17,7 +17,7 @@
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body id="override-index">
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -773,7 +773,7 @@ by MIME type</td></tr>
 <tr><td><a href="mod_expires.html#expiresdefault">ExpiresDefault</a></td><td class="module"><a href="mod_expires.html">mod_expires</a></td></tr>
 <tr><td colspan="2" class="descr">Default algorithm for calculating expiration time</td></tr>
 <tr class="odd"><td><a href="mod_dir.html#fallbackresource">FallbackResource</a></td><td class="module"><a href="mod_dir.html">mod_dir</a></td></tr>
-<tr class="odd"><td colspan="2" class="descr">Define a default URL for requests that don't map to a file</td></tr>
+<tr class="odd"><td colspan="2" class="descr">Define a default URL for requests that don't map to a file or handler</td></tr>
 <tr><td><a href="mod_autoindex.html#headername">HeaderName</a></td><td class="module"><a href="mod_autoindex.html">mod_autoindex</a></td></tr>
 <tr><td colspan="2" class="descr">Name of the file that will be inserted at the top
 of the index listing</td></tr>
@@ -884,7 +884,7 @@ set</td></tr>
 <a href="../fr/mod/overrides.html" hreflang="fr" rel="alternate" title="Français">&nbsp;fr&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

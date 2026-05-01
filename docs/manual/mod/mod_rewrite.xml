@@ -597,8 +597,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
                 Most are documented in the 
                 <a href="../expr.html#vars">Expressions doc</a>, in the
                 <a href="../env.html">Environment Variables doc</a>,
-                or the <a href="http://www.ietf.org/rfc/rfc3875">CGI
-                specification</a>.</p>
+                or the CGI specification (<rfc>3875</rfc>).</p>
 
                 <p>SERVER_NAME and SERVER_PORT depend on the values of
                 <directive module="core">UseCanonicalName</directive> and
@@ -784,7 +783,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
       <em>CondPattern</em>.</p>
 
       <p><em>CondPattern</em> is usually a
-      <em>perl compatible regular expression</em>, but there is
+      <glossary ref="regex">regular expression</glossary>, but there is
       additional syntax available to perform other useful tests against
       the <em>Teststring</em>:</p>
 
@@ -1097,8 +1096,8 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
       in which they will be applied at run-time.</p>
 
       <p><a id="patterns" name="patterns"><em>Pattern</em></a> is
-      a perl compatible <a id="regexp" name="regexp">regular
-      expression</a>.  What this pattern is compared against varies depending
+      a <a id="regexp" name="regexp"><glossary ref="regex">regular
+      expression</glossary></a>.  What this pattern is compared against varies depending
       on where the <directive>RewriteRule</directive> directive is defined. </p>
 
 <note><title><a id="what_is_matched" name="what_is_matched">What is matched?</a></title>
@@ -1112,14 +1111,14 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
       <li><p>In per-directory context (<directive module="core">Directory</directive> and .htaccess),
       the <em>Pattern</em> is matched against only a partial path, for example a request
       of "/app1/index.html" may result in comparison against "app1/index.html" 
-      or "index.html" depending on where the <directive>RewriteRule</directive> is 
-      defined.</p>
+      or "index.html" depending on the directory-path for which the
+      <directive>RewriteRule</directive> applies.</p>
 
-      <p>The directory path where the rule is defined is stripped from the currently mapped
+      <p>The directory-path to which the rule applies is stripped from the currently mapped
       filesystem path before comparison (up to and including a trailing slash). 
       The net result of this per-directory prefix stripping is that rules in
       this context only match against the portion of the currently mapped filesystem path 
-      "below" where the rule is defined.</p>
+      "below" the directory-path to which the rule applies.</p>
 
       <p>Directives such as <directive module="core"
       >DocumentRoot</directive> and <directive module="mod_alias">Alias</directive>, or even the 
@@ -1153,8 +1152,8 @@ restriction is required for security reasons.</li>
 directive for more information regarding what prefix will be added back to
 relative substitutions.</li>
 
-<li> If you wish to match against the full URL-path in a per-directory
-(htaccess) RewriteRule, use the <code>%{REQUEST_URI}</code> variable in
+<li> If you wish to match against the full URL-path in a per-directory context
+RewriteRule, use the <code>%{REQUEST_URI}</code> variable in
 a <directive module="mod_rewrite">RewriteCond</directive>.</li>
 
 <li>The removed prefix always ends with a slash, meaning the matching occurs against a string which
@@ -1387,7 +1386,7 @@ cannot use <code>$N</code> in the substitution string!
         <td>END</td>
         <td>Stop the rewriting process immediately and don't apply any
         more rules. Also prevents further execution of rewrite rules
-        in per-directory and .htaccess context. (Available in 2.3.9 and later)
+        in per-directory context. (Available in 2.3.9 and later)
         <em><a href="../rewrite/flags.html#flag_end">details ...</a></em></td>
     </tr>
     <tr>

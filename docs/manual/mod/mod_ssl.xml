@@ -657,29 +657,29 @@ The available (case-insensitive) <var>protocol</var>s are:</p>
     This is the Secure Sockets Layer (SSL) protocol, version 3.0, from
     the Netscape Corporation.
     It is the successor to SSLv2 and the predecessor to TLSv1, but is
-    deprecated in <a href="https://www.rfc-editor.org/rfc/rfc7568">RFC 7568</a>.</p></li>
+    deprecated in <rfc>7568</rfc>.</p></li>
 
 <li><code>TLSv1</code>
     <p>
     This is the Transport Layer Security (TLS) protocol, version 1.0.
     It is the successor to SSLv3 and is defined in
-    <a href="https://www.rfc-editor.org/rfc/rfc2246">RFC 2246</a>.
+    <rfc>2246</rfc>.
     It is supported by nearly every client.</p></li>
 
 <li><code>TLSv1.1</code> (when using OpenSSL 1.0.1 and later)
     <p>
     A revision of the TLS 1.0 protocol, as defined in
-    <a href="https://www.rfc-editor.org/rfc/rfc4346">RFC 4346</a>.</p></li>
+    <rfc>4346</rfc>.</p></li>
 
 <li><code>TLSv1.2</code> (when using OpenSSL 1.0.1 and later)
     <p>
     A revision of the TLS 1.1 protocol, as defined in
-    <a href="https://www.rfc-editor.org/rfc/rfc5246">RFC 5246</a>.</p></li>
+    <rfc>5246</rfc>.</p></li>
 
 <li><code>TLSv1.3</code> (when using OpenSSL 1.1.1 and later)
     <p>
     A new version of the TLS protocol, as defined in
-    <a href="https://www.rfc-editor.org/rfc/rfc8446">RFC 8446</a>.</p></li>
+    <rfc>8446</rfc>.</p></li>
 
 <li><code>all</code>
     <p>
@@ -970,8 +970,7 @@ key is encrypted, the pass phrase dialog is forced at startup time.
 
 <p>As an alternative to storing certificates and private keys in
 files, a certificate identifier can be used to identify a certificate
-stored in a token.  Currently, only <a
-href="https://tools.ietf.org/html/rfc7512">PKCS#11 URIs</a> are
+stored in a token.  Currently, only PKCS#11 URIs (<rfc>7512</rfc>) are
 recognized as certificate identifiers, and can be used in conjunction
 with the OpenSSL <code>pkcs11</code> engine or provider.  If <directive
 module="mod_ssl">SSLCertificateKeyFile</directive> is omitted, the
@@ -986,7 +985,7 @@ Beginning with version 2.4.7, mod_ssl makes use of
 standardized DH parameters with prime lengths of 2048, 3072 and 4096 bits
 and with additional prime lengths of 6144 and 8192 bits beginning with
 version 2.4.10
-(from <a href="https://www.rfc-editor.org/rfc/rfc3526">RFC 3526</a>), and hands
+(from <rfc>3526</rfc>), and hands
 them out to clients based on the length of the certificate's RSA/DSA key.
 With Java-based clients in particular (Java 7 or earlier), this may lead
 to handshake failures - see this
@@ -1070,7 +1069,7 @@ key file.</p>
 
 <p>As an alternative to storing private keys in files, a key
 identifier can be used to identify a private key stored in a
-token.  Currently, only <a href="https://tools.ietf.org/html/rfc7512">PKCS#11 URIs</a> are recognized as private key
+token.  Currently, only PKCS#11 URIs (<rfc>7512</rfc>) are recognized as private key
 identifiers, and can be used in conjunction with the OpenSSL
 <code>pkcs11</code> engine or provider.</p>
 
@@ -1628,17 +1627,18 @@ The available <var>option</var>s are:</p>
 </li>
 <li><code>StrictRequire</code>
     <p>
-    This <em>forces</em> forbidden access when <directive module="mod_ssl">SSLRequireSSL</directive> or
-    <directive module="mod_ssl">SSLRequire</directive> successfully decided that access should be
-    forbidden. Usually the default is that in the case where a ``<code>Satisfy
-    any</code>'' directive is used, and other access restrictions are passed,
-    denial of access due to <code>SSLRequireSSL</code> or
-    <code>SSLRequire</code> is overridden (because that's how the Apache
-    <code>Satisfy</code> mechanism should work.) But for strict access restriction
-    you can use <code>SSLRequireSSL</code> and/or <code>SSLRequire</code> in
-    combination with an ``<code>SSLOptions +StrictRequire</code>''. Then an
-    additional ``<code>Satisfy Any</code>'' has no chance once mod_ssl has
-    decided to deny access.</p>
+    This <em>forces</em> forbidden access when
+    <directive module="mod_ssl">SSLRequireSSL</directive> or
+    <directive module="mod_ssl">SSLRequire</directive> has decided
+    that access should be denied. Without
+    <code>StrictRequire</code>, it is possible for other
+    authorization directives (such as <directive module="mod_authz_core"
+    type="section">RequireAny</directive>) to override the SSL
+    access denial and grant access anyway. With
+    <code>SSLOptions +StrictRequire</code>, the denial by
+    <code>SSLRequireSSL</code> or <code>SSLRequire</code> is
+    enforced unconditionally, regardless of other authorization
+    settings.</p>
 </li>
 <li><code>OptRenegotiate</code>
     <p>
@@ -2558,9 +2558,12 @@ string. In particular, this may cause the environment variable
 <code>REMOTE_USER</code> to be set.  The <var>varname</var> can be
 any of the <a href="#envvars">SSL environment variables</a>.</p>
 
-<p>When the <code>FakeBasicAuth</code> option is enabled, this directive
-instead controls the value of the username embedded within the basic
-authentication header (see <a href="#ssloptions">SSLOptions</a>).</p>
+<p>When the <code>FakeBasicAuth</code> option (see
+<a href="#ssloptions">SSLOptions</a>) or the
+<directive module="mod_ssl">AuthBasicFake</directive> directive is in
+effect, this directive controls which part of the client certificate is
+used as the username. Without <directive>SSLUserName</directive>,
+<code>REMOTE_USER</code> may not be set for other modules and CGI scripts.</p>
 
 <example><title>Example</title>
 <highlight language="config">
@@ -2577,6 +2580,7 @@ SSLUserName SSL_CLIENT_S_DN_CN
 <default>SSLHonorCipherOrder off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context></contextlist>
+<compatibility>Available in Apache 2.1 and later</compatibility>
 
 <usage>
 <p>When choosing a cipher during an SSLv3 or TLSv1 handshake, normally
@@ -2617,11 +2621,11 @@ SSLCryptoDevice ubsec
 
 <p>
 With OpenSSL 3.0 or later, if no engine is specified but the key or certificate
-is specified using a <a href="https://tools.ietf.org/html/rfc7512">PKCS#11 URIs</a>
+is specified using a PKCS#11 URIs (<rfc>7512</rfc>)
 then it is tried to load the key and certificate from an OpenSSL provider.
 The OpenSSL provider to use must be defined and configured in the OpenSSL config file,
 and it must support the <a href="https://docs.openssl.org/3.0/man7/provider-storemgmt/">STORE method</a>
-for <a href="https://tools.ietf.org/html/rfc7512">PKCS#11 URIs</a>.
+for PKCS#11 URIs (<rfc>7512</rfc>).
 </p>
 </usage>
 </directivesynopsis>
@@ -2629,11 +2633,11 @@ for <a href="https://tools.ietf.org/html/rfc7512">PKCS#11 URIs</a>.
 <directivesynopsis>
 <name>SSLOCSPEnable</name>
 <description>Enable OCSP validation of the client certificate chain</description>
-<syntax>SSLOCSPEnable on|leaf|off</syntax>
+<syntax>SSLOCSPEnable on|leaf|off [<var>flags</var>]</syntax>
 <default>SSLOCSPEnable off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context></contextlist>
-<compatibility>Mode <em>leaf</em> available in httpd 2.4.34 and later</compatibility>
+<compatibility>Mode <em>leaf</em> available in httpd 2.4.34 and later. Flag <em>no_ocsp_for_cert_ok</em> available in 2.4.29 and later.</compatibility>
 
 <usage>
 <p>This option enables OCSP validation of the client certificate
@@ -2647,6 +2651,17 @@ itself, or derived by configuration; see the
 <directive module="mod_ssl">SSLOCSPDefaultResponder</directive> and
 <directive module="mod_ssl">SSLOCSPOverrideResponder</directive>
 directives.</p>
+
+<p>The following optional flags are available:</p>
+<ul>
+<li><code>no_ocsp_for_cert_ok</code>
+    <p>When OCSP validation is enabled, a certificate that does not
+    contain an OCSP responder URL will normally cause validation to fail.
+    Adding this flag allows such certificates to pass validation. This
+    is useful in environments where some certificates in the chain do
+    not include OCSP responder information.</p>
+</li>
+</ul>
 
 <example><title>Example</title>
 <highlight language="config">
@@ -2819,7 +2834,7 @@ OCSP response for a single cert. For server certificates with intermediate
 CA certificates in their chain (the typical case nowadays),
 stapling in its current implementation therefore only partially achieves the
 stated goal of "saving roundtrips and resources" - see also
-<a href="https://www.rfc-editor.org/rfc/rfc6961">RFC 6961</a>
+<rfc>6961</rfc>
 (TLS Multiple Certificate Status Extension).
 </p>
 
@@ -3002,7 +3017,7 @@ One potential use is when a proxy is used for retrieving OCSP queries.</p>
 <usage>
 <p>Optionally configures a secret key for encrypting and decrypting
 TLS session tickets, as defined in
-<a href="https://www.rfc-editor.org/rfc/rfc5077">RFC 5077</a>.
+<rfc>5077</rfc>.
 Primarily suitable for clustered environments where TLS sessions information
 should be shared between multiple nodes. For single-instance httpd setups,
 it is recommended to <em>not</em> configure a ticket key file, but to
@@ -3184,7 +3199,7 @@ httpd -t -D DUMP_SSL_POLICIES
 
 <p>
 ECH is specified in
-    <a href="https://datatracker.ietf.org/doc/draft-ietf-tls-esni/">draft-ietf-tls-esni</a>
+    <rfc>9849</rfc>
 httpd supports ECH "shared-mode" where the httpd instance does the
 ECH decryption and also hosts both the ECH `public-name` and `backend` web
 sites.  

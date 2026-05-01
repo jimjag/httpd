@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE manualpage SYSTEM "./style/manualpage.dtd">
 <?xml-stylesheet type="text/xsl" href="./style/manual.tr.xsl"?>
-<!-- English Revision: 1816110 -->
+<!-- English Revision: 1816110:1933438 (outdated) -->
 <!-- =====================================================
  Translated by: Nilgün Belma Bugüner <nilgun belgeler.org>
    Reviewed by: Orhan Berent <berent belgeler.org>
@@ -111,7 +111,7 @@ Listen 192.0.2.5:8000
     </example>
 
     <p>Sorun giderme ipuçları için <a
-    href="http://wiki.apache.org/httpd/CouldNotBindToAddress">wiki
+    href="https://cwiki.apache.org/confluence/display/httpd/CouldNotBindToAddress">wiki
     sayfasına bakınız</a>.</p>
 
 </note>

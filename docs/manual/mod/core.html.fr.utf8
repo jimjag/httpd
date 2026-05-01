@@ -17,7 +17,7 @@
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p>
 <p class="apache">Serveur HTTP Apache Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -561,10 +561,11 @@ All pour les versions antérieures</code></td></tr>
 
       <dd>
       Permet l'utilisation des directives contrôlant les fonctionnalités
-      spécifiques d'un répertoire (<code class="directive"><a href="#options">Options</a></code> et <code class="directive"><a href="../mod/mod_include.html#xbithack">XBitHack</a></code>). "Options" doit être
-      suivi d'un signe "égal", puis d'une liste d'options séparées par des
-      virgules (pas d'espaces) ; ces options doivent être définies à
-      l'aide de la commande <code class="directive"><a href="#options">Options</a></code>.
+      spécifiques d'un répertoire (<code class="directive"><a href="#options">Options</a></code> et <code class="directive"><a href="../mod/mod_include.html#xbithack">XBitHack</a></code>).
+      Pour restreindre les options pouvant être outrepassées, ajoutez un
+      signe "égal" suivi d'une liste d'options, séparées par des virgules
+      (sans espaces), pouvant être définies à l'aide de la directive
+      <code class="directive"><a href="#options">Options</a></code>.
 
       <div class="note"><h3>Désactivation implicite des options</h3>
       <p>Bien que la liste des options disponibles dans les fichiers
@@ -910,7 +911,7 @@ DESACTIVÉS à partir de la version 2.3.0.</td></tr>
 <table class="directive">
 <tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Permet de définir une variable</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">Syntaxe:</a></th><td><code>Define <var>nom-paramètre</var> [<var>valeur-paramètre</var>]</code></td></tr>
-<tr><th><a href="directive-dict.html#Context">Contexte:</a></th><td>configuration globale, serveur virtuel, répertoire</td></tr>
+<tr><th><a href="directive-dict.html#Context">Contexte:</a></th><td>configuration globale, serveur virtuel</td></tr>
 <tr><th><a href="directive-dict.html#Status">Statut:</a></th><td>Noyau httpd</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>core</td></tr>
 </table>
@@ -5584,7 +5585,7 @@ et son port</td></tr>
     <code>http://www.example.com/splat/</code>. Si vous avez activé
     l'authentification, ceci va obliger l'utilisateur à s'authentifier
     deux fois (une première fois pour <code>www</code> et une seconde
-    fois pour <code>www.example.com</code> -- voir <a href="http://wiki.apache.org/httpd/FAQ#Why_does_Apache_ask_for_my_password_twice_before_serving_a_file.3F">la
+    fois pour <code>www.example.com</code> -- voir <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ#Why_does_Apache_ask_for_my_password_twice_before_serving_a_file.3F">la
     foire aux questions sur ce sujet pour plus d'informations</a>).
     Par contre, si <code class="directive">UseCanonicalName</code> est définie à
     <code>Off</code>, Apache httpd redirigera l'utilisateur vers
@@ -5845,7 +5846,7 @@ Apache.</td></tr>
 <a href="../tr/mod/core.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

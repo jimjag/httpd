@@ -1,4 +1,4 @@
-# AGENTS.md — Apache HTTP Server Documentation
+# AGENTS.md - Apache HTTP Server Documentation
 
 This file provides instructions for AI agents working on the Apache HTTP Server documentation.
 
@@ -24,6 +24,17 @@ This is the documentation source for the [Apache HTTP Server](https://httpd.apac
   <directive module="core" type="section">VirtualHost</directive>
   ```
 - `<glossary>` — Use for glossary-defined terms. Use `ref` attribute when link target differs from display text.
+
+## External Link Conventions
+
+
+Always link to the IETF Datatracker for RFC references:
+```
+https://datatracker.ietf.org/doc/html/rfcNNNN
+```
+For section-specific links, use fragment anchors: `#section-N.N`
+
+Do NOT use `tools.ietf.org`, `www.rfc-editor.org`, `www.ietf.org/rfc/`, `www.w3.org/Protocols/`, `www.faqs.org/rfcs/`, or any other RFC mirror. These are legacy patterns — `datatracker.ietf.org` is the canonical standard for this documentation.
 
 ## Directive Syntax Definitions
 

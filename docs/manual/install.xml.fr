@@ -3,7 +3,7 @@
 <?xml-stylesheet type="text/xsl" href="./style/manual.fr.xsl"?>
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
-<!-- English Revision: 1927861:1933189 (outdated) -->
+<!-- English Revision: 1927861:1933438 (outdated) -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -491,7 +491,7 @@ $ tar xvf httpd-<em>NN</em>.tar
     situation n'est pas appelée à évoluer de sitôt.</p>
 
     <p>Une  <a
-    href="http://wiki.apache.org/httpd/DistrosDefaultLayout">description
+    href="https://cwiki.apache.org/confluence/display/httpd/DistrosDefaultLayout">description
     de ces distributions tierces</a> est maintenue dans le wiki du
     serveur HTTP, et doit en refléter l'état actuel. Vous devrez
     cependant vous familiariser par vous-même avec la gestion du paquet

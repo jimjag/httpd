@@ -17,7 +17,7 @@ l'authentification à base de condensés - Serveur HTTP Apache Version 2.5</titl
 
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body id="manual-page"><div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p>
 <p class="apache">Serveur HTTP Apache Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -33,13 +33,13 @@ l'authentification à base de condensés</h1>
 <div class="outofdate">Cette traduction peut être périmée. Vérifiez la version
             anglaise pour les changements récents.</div>
 
-    <p><code>htdigest</code> permet de créer et maintenir les fichiers
+    <p><code class="program"><a href="../programs/htdigest.html">htdigest</a></code> permet de créer et maintenir les fichiers
     textes dans lesquels sont stockés des noms d'utilisateurs, des
     domaines de protection (realms) et des mots de passe pour
     l'authentification à base de condensés des utilisateurs HTTP.
     L'accès aux ressources du serveur HTTP Apache peut être limité aux
     seuls utilisateurs enregistrés dans les fichiers créés par
-    <code>htdigest</code>.</p>
+    <code class="program"><a href="../programs/htdigest.html">htdigest</a></code>.</p>
 
     <p>Cette page de manuel ne décrit que les arguments de la ligne de
     commande. Pour plus de détails à propos des directives nécessaires à
@@ -96,7 +96,7 @@ l'authentification à base de condensés</h1>
 <a href="../tr/programs/htdigest.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

@@ -17,7 +17,7 @@
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -378,6 +378,14 @@ ProxyPass "/examples" "http://backend.example.com/examples" timeout=10</pre>
 &lt;/Proxy&gt;</pre>
 
 
+      <div class="note"><h3>HTTPS/CONNECT requests</h3>
+      <p>The <code>&lt;Proxy "*"&gt;</code> wildcard above matches all
+      requests, including HTTPS requests tunneled via the CONNECT method.
+      Note that access control for CONNECT tunnels can only match against
+      the host and port — path-based matching (e.g.,
+      <code>&lt;Proxy "https://example.com/path/"&gt;</code>) does not
+      work because CONNECT requests do not contain a path.</p></div>
+
       <p>For more information on access control directives, see
       <code class="module"><a href="../mod/mod_authz_host.html">mod_authz_host</a></code>.</p>
 
@@ -439,6 +447,12 @@ ProxyPass "/examples" "http://backend.example.com/examples" timeout=10</pre>
   SetEnv proxy-nokeepalive 1
 &lt;/Location&gt;</pre>
 
+
+      <p>Note that <code>force-proxy-request-1.0</code> also implies
+      <code>proxy-sendcl</code>, because HTTP/1.0 does not support
+      chunked transfer encoding. Chunked request body forwarding
+      (via <code>proxy-sendchunked</code>) will be disabled when
+      this option is set.</p>
 
       <p> In 2.4.26 and later, the "no-proxy" environment variable can be set to disable 
       <code class="module"><a href="../mod/mod_proxy.html">mod_proxy</a></code> processing the current request.
@@ -525,6 +539,7 @@ ProxyPass "/examples" "http://backend.example.com/examples" timeout=10</pre>
     Balancers available for a virtualhost in addition to the
     number pre-configured. It only takes effect if there is at
     least one pre-configured Balancer.</p>
+    <p>The value must be between 0 and 1000.</p>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -1178,8 +1193,15 @@ ProxyPass "/mirror/foo"   "http://backend.example.com"</pre>
     <div class="warning"><h3>Ordering ProxyPass Directives in Locations</h3>
       <p>Only one <code class="directive">ProxyPass</code> directive
       can be placed in a <code class="directive"><a href="../mod/core.html#location">Location</a></code> block,
-      and the most specific location will take precedence.</p>
+      and the last matching
+      <code class="directive"><a href="../mod/core.html#location">Location</a></code> block takes precedence,
+      following the standard
+      <a href="../sections.html#merging">section merging</a> rules.
+      Place more-specific <code class="directive"><a href="../mod/core.html#location">Location</a></code>
+      blocks <em>after</em> less-specific ones to ensure the intended
+      <code class="directive">ProxyPass</code> applies.</p>
     </div>
+
     <div class="warning"><h3>Exclusions and the no-proxy environment variable</h3>
       <p>Exclusions must come <em>before</em> the
       general <code class="directive">ProxyPass</code> directives. In 2.4.26 and later, the "no-proxy"
@@ -1436,7 +1458,7 @@ ProxyPass "/mirror/foo"   "http://backend.example.com"</pre>
         <td><p>Protocol accepted by <code class="module"><a href="../mod/mod_proxy_http.html">mod_proxy_http</a></code> or
         <code class="module"><a href="../mod/mod_proxy_wstunnel.html">mod_proxy_wstunnel</a></code> for the HTTP Upgrade mechanism
         upon negotiation by the HTTP client/browser (per
-        <a href="https://www.ietf.org/rfc/rfc9110.html#name-upgrade">RFC 9110 - Upgrade</a>).
+        <a href="https://www.rfc-editor.org/rfc/rfc9110#name-upgrade">RFC 9110 - Upgrade</a>).
         See the <a href="#protoupgrade">Protocol Upgrade</a> note below</p>
     </td></tr>
     <tr><td>mapping</td>
@@ -1769,6 +1791,22 @@ when the <var>url</var> parameter contains backreference(s) (see note below).
 
     <div class="note"><strong>Note: </strong>This directive cannot be used within a
     <code>&lt;Directory&gt;</code> context.</div>
+
+    <div class="warning"><h3>Worker matching with backreferences</h3>
+    <p>When <code class="directive">ProxyPassMatch</code> contains
+    backreferences (e.g., <code>$1</code>) in the target URL, each
+    request produces a different resolved URL. Because <a href="#workers">workers</a> are matched by URL, these requests
+    will not match the worker created by this directive and will
+    instead use the default reverse proxy worker, which does not
+    reuse connections or cache DNS lookups. To enable connection
+    pooling, define an explicit worker for the backend separately:</p>
+    <pre class="prettyprint lang-config">ProxyPass        "/notused" "http://backend.example.com/" connectiontimeout=5 timeout=30
+ProxyPassMatch   "^/(.*\.gif)$" "http://backend.example.com/$1"</pre>
+
+    <p>The explicit <code class="directive">ProxyPass</code> worker definition
+    ensures that the backend connection pool is available for use by
+    <code class="directive">ProxyPassMatch</code> requests.</p>
+    </div>
 
     <p>Suppose the local server has address <code>http://example.com/</code>;
     then</p>
@@ -2234,7 +2272,7 @@ header for proxied requests</td></tr>
 <a href="../ja/mod/mod_proxy.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

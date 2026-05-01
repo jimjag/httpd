@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 1933057:1933179 (outdated) -->
+<!-- English Revision: 1933057:1933502 (outdated) -->
 <!-- French translation : Lucien GENTIS -->
 
 <!--
@@ -291,7 +291,7 @@ Protocols h2 h2c http/1.1
         <contextlist>
             <context>server config</context>
             <context>virtual host</context>
-	    <context>directory</context>
+            <context>directory</context>
             <context>.htaccess</context>
         </contextlist>
 	<compatibility>Disponible à partir de la version 2.4.18 du serveur HTTP
@@ -563,7 +563,7 @@ H2PushPriority text/css   interleaved      # poids de 256 par défaut
         <contextlist>
             <context>server config</context>
             <context>virtual host</context>
-	    <context>directory</context>
+            <context>directory</context>
             <context>.htaccess</context>
         </contextlist>
 
@@ -1329,8 +1329,8 @@ H2EarlyHint Link "&lt;/my.css&gt;;rel=preload;as=style"
             <p>
                 La directive <directive>H2MaxHeaderBlockLen</directive> permet
 		de définir la taille maximale globale des en-têtes d’une
-		réponse. Définir cette directive à 0 implique une taille maximale
-		de 64 ko dans nghttp2, ce qui correspond à la valeur par défaut.
+		réponse. Définir cette directive à&nbsp;0 implique une taille maximale
+		de&nbsp;64 ko dans nghttp2, ce qui correspond à la valeur par défaut.
             </p>
             <p>
                 Les réponses dont la somme des tailles de tous les en-têtes est

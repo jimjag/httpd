@@ -16,7 +16,7 @@
 
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body id="manual-page"><div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -361,7 +361,7 @@ print "Hello, World.";</pre>
 
       <p>When you miss HTTP headers from the environment, make
       sure they are formatted according to
-      <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>,
+      <a href="https://www.rfc-editor.org/rfc/rfc2616">RFC 2616</a>,
       section 4.2: Header names must start with a letter,
       followed only by letters, numbers or hyphen. Any header
       violating this rule will be dropped silently.</p>
@@ -462,8 +462,7 @@ print "Hello, World.";</pre>
       <p>These variables are available to the CGI programmer, and
       are half of the story of the client-server communication. The
       complete list of required variables is at
-      <a href="http://www.ietf.org/rfc/rfc3875">Common Gateway
-      Interface RFC</a>.</p>
+      Common Gateway Interface RFC (<a href="https://www.rfc-editor.org/rfc/rfc3875">RFC 3875</a>).</p>
 
       <p>This simple Perl CGI program will display all of the
       environment variables that are being passed around. Two
@@ -553,8 +552,7 @@ foreach my $key (keys %ENV) {
     
 
     <p>The current CGI specification is available in the
-    <a href="http://www.ietf.org/rfc/rfc3875">Common Gateway
-    Interface RFC</a>.</p>
+    Common Gateway Interface RFC (<a href="https://www.rfc-editor.org/rfc/rfc3875">RFC 3875</a>).</p>
 
     <p>When you post a question about a CGI problem that you're
     having, whether to a mailing list, or to a newsgroup, make sure
@@ -576,7 +574,7 @@ foreach my $key (keys %ENV) {
 <a href="../ko/howto/cgi.html" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

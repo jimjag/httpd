@@ -16,18 +16,22 @@
 
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body id="manual-page"><div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p>
 <p class="apache">Serveur HTTP Apache Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">Serveur HTTP</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Rewrite</a></div><div id="page-content"><div id="preamble"><h1>Hébergement virtuel de masse avec mod_rewrite</h1>
 <div class="toplang">
-<p><span>Langues Disponibles: </span><a href="../en/rewrite/vhosts.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
-<a href="../fr/rewrite/vhosts.html" title="Français">&nbsp;fr&nbsp;</a></p>
+<p><span>Langues Disponibles: </span><a href="../de/rewrite/vhosts.html" hreflang="de" rel="alternate" title="Deutsch">&nbsp;de&nbsp;</a> |
+<a href="../en/rewrite/vhosts.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/rewrite/vhosts.html" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/rewrite/vhosts.html" title="Français">&nbsp;fr&nbsp;</a> |
+<a href="../ja/rewrite/vhosts.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
+<a href="../ko/rewrite/vhosts.html" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
+<a href="../tr/rewrite/vhosts.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a> |
+<a href="../zh-cn/rewrite/vhosts.html" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
 </div>
-<div class="outofdate">Cette traduction peut être périmée. Vérifiez la version
-            anglaise pour les changements récents.</div>
 
 
 <p>Ce document est un complément à la <a href="../mod/mod_rewrite.html">documentation de référence</a> du module
@@ -35,11 +39,11 @@
 virtuels dynamiquement configurés en utilisant
 <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>.</p>
 
-<div class="warning">L'utilisation de mod_rewrite n'est en général pas la
+<div class="warning">L'utilisation de <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> n'est en général pas la
 meilleure méthode pour configurer des serveurs virtuels. Vous devez dans un
 premier temps tenter de résoudre votre problème via ces  <a href="../vhosts/mass.html">d'autres méthodes</a> avant d'avoir recours à
-mod_rewrite. Voir aussi le document <a href="avoid.html#vhosts">Comment éviter
-il'utilisation de mod_rewrite</a>.</div>
+<code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code>. Voir aussi le document <a href="avoid.html#vhosts">Comment éviter
+il'utilisation de <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code></a>.</div>
 
 
 </div>
@@ -108,7 +112,7 @@ commence par <code>www.</code> et si c'est le cas, la réécriture est annulée.
 
 <p>
 Comme c'est le cas pour de nombreuses techniques discutées dans ce
-document, mod_rewrite n'est vraiment pas la meilleure méthode pour
+document, <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> n'est vraiment pas la meilleure méthode pour
 accomplir cette tâche. Vous devez plutôt vous tourner vers
 <code class="module"><a href="../mod/mod_vhost_alias.html">mod_vhost_alias</a></code>, car ce dernier sera bien plus à même
 de gérer tout ce qui est au delà du domaine des fichiers statiques,
@@ -127,16 +131,16 @@ virtuels via <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite<
     La première moitié est très similaire à la partie correspondante
     ci-dessus, excepté quelques modifications requises à des fins de
     compatibilité ascendante et pour faire en sorte que la partie
-    <code>mod_rewrite</code> fonctionne correctement ; la seconde moitié
-    configure <code>mod_rewrite</code> pour effectuer le travail
+    <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> fonctionne correctement ; la seconde moitié
+    configure <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> pour effectuer le travail
     proprement dit.</p>
 
-    <p>Comme <code>mod_rewrite</code> s'exécute avant tout autre module
+    <p>Comme <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> s'exécute avant tout autre module
     de traduction d'URI (comme <code>mod_alias</code>), il faut lui
     ordonner explicitement d'ignorer toute URL susceptible d'être
     traitée par ces autres modules. Et comme ces règles auraient sinon
     court-circuité toute directive <code>ScriptAlias</code>, nous devons
-    faire en sorte que <code>mod_rewrite</code> déclare explicitement
+    faire en sorte que <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> déclare explicitement
     ces correspondances.</p>
 
 <pre class="prettyprint lang-config"># extrait le nom de serveur de l'en-tête Host:
@@ -217,11 +221,17 @@ RewriteRule  "^/cgi-bin/(.*)$"              "%1/cgi-bin/$1" [H=cgi-script]</pre>
 
 </div></div>
 <div class="bottomlang">
-<p><span>Langues Disponibles: </span><a href="../en/rewrite/vhosts.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
-<a href="../fr/rewrite/vhosts.html" title="Français">&nbsp;fr&nbsp;</a></p>
+<p><span>Langues Disponibles: </span><a href="../de/rewrite/vhosts.html" hreflang="de" rel="alternate" title="Deutsch">&nbsp;de&nbsp;</a> |
+<a href="../en/rewrite/vhosts.html" hreflang="en" rel="alternate" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/rewrite/vhosts.html" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/rewrite/vhosts.html" title="Français">&nbsp;fr&nbsp;</a> |
+<a href="../ja/rewrite/vhosts.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
+<a href="../ko/rewrite/vhosts.html" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
+<a href="../tr/rewrite/vhosts.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a> |
+<a href="../zh-cn/rewrite/vhosts.html" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Signaler un bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }

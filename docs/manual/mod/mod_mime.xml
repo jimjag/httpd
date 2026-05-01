@@ -162,8 +162,7 @@ module="mod_mime_magic">MimeMagicFile</directive></seealso>
     designed for transmitting a binary file in an ASCII (text)
     format.</p>
 
-    <p>The <a href="https://www.rfc-editor.org/rfc/rfc2616">HTTP/1.1
-    RFC</a>, section 14.11 puts it this way:</p>
+    <p>The HTTP/1.1 RFC (<rfc>2616</rfc>), section 14.11 puts it this way:</p>
 
     <blockquote cite="https://www.rfc-editor.org/rfc/rfc2616">
       <p>The Content-Encoding entity-header field is used as a modifier to
@@ -377,6 +376,7 @@ AddHandler type-map .var
     them.</p>
 </usage>
 <seealso><directive module="core">SetHandler</directive></seealso>
+<seealso><directive module="mod_dir">FallbackResource</directive></seealso>
 </directivesynopsis>
 
 <directivesynopsis>

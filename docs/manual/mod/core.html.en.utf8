@@ -17,7 +17,7 @@
 <link href="../images/favicon.png" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
 <img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
@@ -540,8 +540,9 @@ NoDecode option available in 2.3.12 and later.</td></tr>
       Allow use of the directives controlling specific directory
       features (<code class="directive"><a href="#options">Options</a></code> and
       <code class="directive"><a href="../mod/mod_include.html#xbithack">XBitHack</a></code>).
-      An equal sign may be given followed by a comma-separated list, without
-      spaces, of options that may be set using the <code class="directive"><a href="#options">Options</a></code> command.
+      To restrict which options may be overridden, specify an equal sign
+      followed by a comma-separated list, without spaces, of options that
+      may be set using the <code class="directive"><a href="#options">Options</a></code> directive.
 
       <div class="note"><h3>Implicit disabling of Options</h3>
       <p>Even though the list of options that may be used in .htaccess files
@@ -924,7 +925,7 @@ named file-system directory, sub-directories, and their contents.</td></tr>
     in a directory context may be used. <var>Directory-path</var> is
     either the full path to a directory, or a wild-card string using
     Unix shell-style matching. In a wild-card string, <code>?</code> matches
-    any single character, and <code>*</code> matches any sequences of
+    any single character, and <code>*</code> matches any sequence of
     characters. You may also use <code>[]</code> character ranges. None
     of the wildcards match a `/' character, so <code>&lt;Directory
     "/*/public_html"&gt;</code> will not match
@@ -1590,8 +1591,9 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
     omitted.</p>
 
     <p>A number as modifier can be used to assign a log severity level to a
-    format item. The item will only be logged if the severity of the log
-    message is not higher than the specified log severity level. The number can
+    format item. The item will only be logged if the log message has a
+    severity level of the specified number or more severe (i.e., the
+    message's level number is less than or equal to the modifier). The number can
     range from 1 (alert) over 4 (warn) and 7 (debug) to 15 (trace8).</p>
 
     <p>For example, here's what would happen if you added modifiers to
@@ -1610,7 +1612,8 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
 <tr>
     <td><code>%4{Referer}i</code></td>
     <td>Logs the <code>Referer</code> only if the log message severity
-    is higher than 4.</td>
+    is 4 (warn) or more severe (i.e., levels 1 through 4:
+    alert, crit, error, warn).</td>
     </tr>
 </table>
 
@@ -1852,7 +1855,7 @@ filenames</td></tr>
 
     <p>The <var>filename</var> argument should include a filename, or
     a wild-card string, where <code>?</code> matches any single character,
-    and <code>*</code> matches any sequences of characters.</p>
+    and <code>*</code> matches any sequence of characters.</p>
     <pre class="prettyprint lang-config">&lt;Files "cat.html"&gt;
     # Insert stuff that applies to cat.html here
 &lt;/Files&gt;
@@ -2129,8 +2132,8 @@ media type in the HTTP Content-Type header field</td></tr>
 <tr><th><a href="directive-dict.html#Compatibility">Compatibility:</a></th><td>2.2.32 or 2.4.24 and later</td></tr>
 </table>
     <p>This directive changes the rules applied to the HTTP Request Line
-    (<a href="https://tools.ietf.org/html/rfc7230#section-3.1.1">RFC 7230 §3.1.1</a>) and the HTTP Request Header Fields
-    (<a href="https://tools.ietf.org/html/rfc7230#section-3.2">RFC 7230 §3.2</a>), which are now applied by default or using
+    (<a href="https://www.rfc-editor.org/rfc/rfc7230#section-3.1.1">RFC 7230</a>) and the HTTP Request Header Fields
+    (<a href="https://www.rfc-editor.org/rfc/rfc7230#section-3.2">RFC 7230</a>), which are now applied by default or using
     the <code>Strict</code> option. Due to legacy modules, applications or
     custom user-agents which must be deprecated the <code>Unsafe</code>
     option has been added to revert to the legacy behaviors.</p>
@@ -2149,10 +2152,10 @@ media type in the HTTP Content-Type header field</td></tr>
       <p>Prior to the introduction of this directive, the Apache HTTP Server
       request message parsers were tolerant of a number of forms of input
       which did not conform to the protocol.
-      <a href="https://tools.ietf.org/html/rfc7230#section-9.4">RFC 7230 §9.4 Request Splitting</a> and
-      <a href="https://tools.ietf.org/html/rfc7230#section-9.5">§9.5 Response Smuggling</a> call out only two of the potential
+      <a href="https://www.rfc-editor.org/rfc/rfc7230#section-9.4">RFC 7230</a> (Request Splitting) and
+      <a href="https://www.rfc-editor.org/rfc/rfc7230#section-9.5">RFC 7230</a> (Response Smuggling) call out only two of the potential
       risks of accepting non-conformant request messages, while
-      <a href="https://tools.ietf.org/html/rfc7230#section-3.5">RFC 7230 §3.5</a> "Message Parsing Robustness" identify the
+      <a href="https://www.rfc-editor.org/rfc/rfc7230#section-3.5">RFC 7230</a> "Message Parsing Robustness" identify the
       risks of accepting obscure whitespace and request message formatting. 
       As of the introduction of this directive, all grammar rules of the
       specification are enforced in the default <code>Strict</code> operating
@@ -2185,7 +2188,7 @@ media type in the HTTP Content-Type header field</td></tr>
     </dd>
     <dt>RegisteredMethods|LenientMethods</dt>
     <dd>
-      <p><a href="https://tools.ietf.org/html/rfc7231#section-4.1">RFC 7231 §4.1</a> "Request Methods" "Overview" requires that
+      <p><a href="https://www.rfc-editor.org/rfc/rfc7231#section-4.1">RFC 7231</a> "Request Methods" "Overview" requires that
       origin servers shall respond with a HTTP 501 status code when an
       unsupported method is encountered in the request line.
       This already happens when the <code>LenientMethods</code> option is used,
@@ -2211,11 +2214,11 @@ media type in the HTTP Content-Type header field</td></tr>
       </dd>
       <dt>Allow0.9|Require1.0</dt>
       <dd>
-      <p><a href="https://tools.ietf.org/html/rfc2616#section-19.6">RFC 2616 §19.6</a> "Compatibility With Previous Versions" had
+      <p><a href="https://www.rfc-editor.org/rfc/rfc2616#section-19.6">RFC 2616</a> "Compatibility With Previous Versions" had
       encouraged HTTP servers to support legacy HTTP/0.9 requests. RFC 7230
       supersedes this with "The expectation to support HTTP/0.9 requests has
       been removed" and offers additional comments in 
-      <a href="https://tools.ietf.org/html/rfc7230#appendix-A">RFC 7230 Appendix A</a>. The <code>Require1.0</code> option allows
+      <a href="https://www.rfc-editor.org/rfc/rfc7230#appendix-A">RFC 7230 Appendix A</a>. The <code>Require1.0</code> option allows
       the user to remove support of the default <code>Allow0.9</code> option's
       behavior.</p>
 
@@ -3127,12 +3130,18 @@ URLs</td></tr>
     <p>For all origin (non-proxy) requests, the URL to be matched is a
     URL-path of the form <code>/path/</code>.  <em>No scheme, hostname,
     port, or query string may be included.</em>  For proxy requests, the
-    URL to be matched is of the form
+    URL to be matched depends on the type of proxy. With a
+    <strong>forward</strong> proxy (<code class="directive"><a href="../mod/mod_proxy.html#proxyrequests">ProxyRequests</a></code>), the URL to be
+    matched is of the form
     <code>scheme://servername/path</code>, and you must include the
-    prefix.</p>
+    prefix. With a <strong>reverse</strong> proxy (configured via
+    <code class="directive"><a href="../mod/mod_proxy.html#proxypass">ProxyPass</a></code> or
+    <code class="directive"><a href="../mod/mod_proxy.html#rewriterule ... [p]">RewriteRule ... [P]</a></code>),
+    the request arrives as a local URL-path, so use <code>/path/</code>
+    just as you would for origin requests.</p>
 
     <p>The URL may use wildcards. In a wild-card string, <code>?</code> matches
-    any single character, and <code>*</code> matches any sequences of
+    any single character, and <code>*</code> matches any sequence of
     characters. Neither wildcard character matches a / in the URL-path.</p>
 
     <p><a class="glossarylink" href="../glossary.html#regex" title="see glossary">Regular expressions</a>
@@ -4640,9 +4649,10 @@ itself</td></tr>
     identify a virtual host, when using <a href="../vhosts/name-based.html">name-based virtual hosts</a>.</p>
 
     <p>Additionally, this is used when
-    creating self-referential redirection URLs when 
-    <code class="directive"><a href="#usecanonicalname">UseCanonicalName</a></code> is set to a non-default
-    value.</p>
+    creating self-referential redirection URLs when
+    <code class="directive"><a href="#usecanonicalname">UseCanonicalName</a></code> is set to
+    <code>On</code>. When <code>UseCanonicalName</code> is set to
+    <code>DNS</code>, a reverse DNS lookup is used instead.</p>
 
     <p>For example, if the name of the
     machine hosting the web server is <code>simple.example.com</code>,
@@ -4927,11 +4937,14 @@ handler</td></tr>
     <div class="note"><h3>Note</h3>
     <p>Because <code class="directive">SetHandler</code> overrides default handlers,
     normal behavior such as handling of URLs ending in a slash (/) as
-    directories or index files is suppressed.</p></div>
+    directories or index files is suppressed. It also overrides
+    <code class="directive"><a href="../mod/mod_dir.html#fallbackresource">FallbackResource</a></code>, since the
+    request already has an explicit handler assigned.</p></div>
 
 <h3>See also</h3>
 <ul>
 <li><code class="directive"><a href="../mod/mod_mime.html#addhandler">AddHandler</a></code></li>
+<li><code class="directive"><a href="../mod/mod_dir.html#fallbackresource">FallbackResource</a></code></li>
 </ul>
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -5098,6 +5111,11 @@ certain events before failing a request</td></tr>
     reflect the full headers and all chunk headers with the response
     body.  As a proxy server, the request body is not restricted to 64Kb.</p>
 
+    <p>The <code>TRACE</code> method cannot be restricted using
+    <code class="directive"><a href="#limit">&lt;Limit&gt;</a></code> or
+    <code class="directive"><a href="#limitexcept">&lt;LimitExcept&gt;</a></code>.
+    Use <code class="directive">TraceEnable</code> instead.</p>
+
     <div class="note"><h3>Note</h3>
 
     <p>Despite claims to the contrary, enabling the <code>TRACE</code>
@@ -5210,7 +5228,7 @@ port</td></tr>
     <code>http://www.example.com/splat/</code>. If you have
     authentication enabled, this will cause the user to have to
     authenticate twice (once for <code>www</code> and once again
-    for <code>www.example.com</code> -- see <a href="http://wiki.apache.org/httpd/FAQ#Why_does_Apache_ask_for_my_password_twice_before_serving_a_file.3F">
+    for <code>www.example.com</code> -- see <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ#Why_does_Apache_ask_for_my_password_twice_before_serving_a_file.3F">
     the FAQ on this subject for more information</a>). But if
     <code class="directive">UseCanonicalName</code> is set <code>Off</code>, then
     Apache httpd will redirect to <code>http://www/splat/</code>.</p>
@@ -5447,7 +5465,7 @@ hostname or IP address</td></tr>
 <a href="../tr/mod/core.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a></p>
 </div><div id="footer">
 <p class="apache">Copyright 2026 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
 }
