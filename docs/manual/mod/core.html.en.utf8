@@ -431,7 +431,7 @@ NoDecode option available in 2.3.12 and later.</td></tr>
 <code>.htaccess</code> files</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>AllowOverride All|None|<var>directive-type</var>
 [<var>directive-type</var>] ...</code></td></tr>
-<tr><th><a href="directive-dict.html#Default">Default:</a></th><td><code>AllowOverride None (2.3.9 and later), AllowOverride All (2.3.8 and earlier)</code></td></tr>
+<tr><th><a href="directive-dict.html#Default">Default:</a></th><td><code>AllowOverride None</code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Context:</a></th><td>directory</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Core</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>core</td></tr>
@@ -589,7 +589,7 @@ NoDecode option available in 2.3.12 and later.</td></tr>
 <tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Individual directives that are allowed in
 <code>.htaccess</code> files</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>AllowOverrideList None|<var>directive</var>
-[<var>directive-type</var>] ...</code></td></tr>
+[<var>directive</var>] ...</code></td></tr>
 <tr><th><a href="directive-dict.html#Default">Default:</a></th><td><code>AllowOverrideList None</code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Context:</a></th><td>directory</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Core</td></tr>
@@ -637,7 +637,15 @@ AllowOverrideList CookieTracking CookieName</pre>
     grants permission to the <code>AuthConfig</code>
     directive grouping and <code class="directive">AllowOverrideList</code> grants
     permission to only two directives from the <code>FileInfo</code> directive
-    grouping. All others will cause an Internal Server Error.</p>
+    grouping. The effective set of permitted directives is the union of
+    both. All others will cause an Internal Server Error.</p>
+
+    <p>In addition, certain directives are always permitted in
+    <code>.htaccess</code> files whenever the override mechanism is
+    enabled (i.e., <code class="directive"><a href="#allowoverride">AllowOverride</a></code>
+    is not <code>None</code>). These are listed in the
+    <a href="overrides.html#override-all">All</a> section of the
+    <a href="overrides.html">override class index</a>.</p>
 
 <h3>See also</h3>
 <ul>
@@ -748,6 +756,13 @@ variables</td></tr>
     which may be different than the original request from the client
     due to internal redirects or subrequests.</dd>
   </dl>
+
+  <div class="note"><h3>Note</h3>
+  <p>The CGI environment variable <code>REQUEST_URI</code> contains the
+      full original URI from the request line, including the query string.
+      This differs from the server variable <code>%{REQUEST_URI}</code>
+      used in <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> and <a href="../expr.html">
+      ap_expr</a>, which contains only the path component.</p></div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -1049,10 +1064,15 @@ the contents of file-system directories matching a regular expression.</td></tr>
 </table>
     <p><code class="directive">&lt;DirectoryMatch&gt;</code> and
     <code>&lt;/DirectoryMatch&gt;</code> are used to enclose a group
-    of directives which will apply only to the named directory (and the files within),
-    the same as <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code>.
-    However, it takes as an argument a
-    <a class="glossarylink" href="../glossary.html#regex" title="see glossary">regular expression</a>.  For example:</p>
+    of directives which will apply to directories (and the files
+    within) whose filesystem path matches the given
+    <a class="glossarylink" href="../glossary.html#regex" title="see glossary">regular expression</a>.
+    Unlike <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code>,
+    it does not automatically apply to subdirectories unless the
+    pattern also matches them.  It takes as an argument a
+    regular expression that is matched as a substring — it is not
+    anchored at the start or end unless you explicitly include
+    <code>^</code> or <code>$</code> in the pattern.  For example:</p>
 
     <pre class="prettyprint lang-config">&lt;DirectoryMatch "^/www/(.+/)?[0-9]{3}/"&gt;
     # ...
@@ -1072,8 +1092,9 @@ the contents of file-system directories matching a regular expression.</td></tr>
 
     <div class="note"><h3>Trailing Slash</h3>
       This directive applies to requests for directories that may or may
-      not end in a trailing slash, so expressions that are anchored to the
-      end of line ($) must be written with care.
+      not end in a trailing slash. If you anchor your pattern with
+      <code>$</code>, you may need to match both forms, e.g.,
+      <code>&lt;DirectoryMatch "^/var/www/?$"&gt;</code>.
     </div>
 
     <p>From 2.4.8 onwards, named groups and backreferences are captured and
@@ -1375,7 +1396,7 @@ version 2.3.9.</td></tr>
 
     <div class="warning"><h3>Note</h3>
         <p> This directive is evaluated at configuration processing time, 
-        not at runtime. As a result, this directive cannot be conditonally
+        not at runtime. As a result, this directive cannot be conditionally
         evaluated by enclosing it in an <code class="directive"><a href="#if">&lt;If&gt;</a></code> section.</p>
     </div>
 
@@ -1568,14 +1589,14 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
     without causing any log message, the additional information is not logged
     either.</p>
 
-    <p>It can happen that some format string items do not produce output.  For
+    <p>It can happen that some format specifiers do not produce output.  For
     example, the Referer header is only present if the log message is
     associated to a request and the log message happens at a time when the
     Referer header has already been read from the client.  If no output is
     produced, the default behavior is to delete everything from the preceding
-    space character to the next space character.  This means the log line is
+    space character to the next space character.  This means the format string is
     implicitly divided into fields on non-whitespace to whitespace transitions.
-    If a format string item does not produce output, the whole field is
+    If a format specifier does not produce output, the whole field is
     omitted.  For example, if the remote address <code>%a</code> in the log
     format <code>[%t] [%l] [%a] %M&nbsp;</code> is not available, the surrounding
     brackets are not logged either.  Space characters can be escaped with a
@@ -1617,7 +1638,7 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
     </tr>
 </table>
 
-    <p>Some format string items accept additional parameters in braces.</p>
+    <p>Some format specifiers accept additional parameters in braces.</p>
 
     <table class="bordered"><tr class="header"><th>Format&nbsp;String</th> <th>Description</th></tr>
 <tr><td><code>%%</code></td>
@@ -2764,7 +2785,14 @@ methods</td></tr>
     <div class="warning">A <code class="directive"><a href="#limitexcept">&lt;LimitExcept&gt;</a></code> section should always be
     used in preference to a <code class="directive">&lt;Limit&gt;</code>
     section when restricting access, since a <code class="directive"><a href="#limitexcept">&lt;LimitExcept&gt;</a></code> section provides protection
-    against arbitrary methods.</div>
+    against arbitrary methods.  See also the
+    <a href="../sections.html#merging">configuration sections
+    merging documentation</a> for a warning about how
+    <code class="directive">&lt;Limit&gt;</code> inside
+    <code class="directive"><a href="#location">&lt;Location&gt;</a></code>
+    can silently override
+    <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code>
+    restrictions.</div>
 
     <p>The <code class="directive">&lt;Limit&gt;</code> and
     <code class="directive"><a href="#limitexcept">&lt;LimitExcept&gt;</a></code>
@@ -3995,8 +4023,12 @@ directory</td></tr>
       The server will follow symbolic links in this directory. This is
       the default setting.
       <div class="note">
-      <p>Even though the server follows the symlink it does <em>not</em>
+      <p>When the server follows the symlink it does <em>not</em>
       change the pathname used to match against <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code> sections.</p>
+
+      <p>Disabling this option also prevents
+      <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> from operating in per-directory
+      context (<code>.htaccess</code> files and <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code> sections).</p>
 
       <p>The <code>FollowSymLinks</code> and
       <code>SymLinksIfOwnerMatch</code> <code class="directive">Options</code> work only in <code class="directive"><a href="#directory">&lt;Directory&gt;</a></code> sections or
@@ -4189,6 +4221,14 @@ directory</td></tr>
         <p>It is safe to specify protocols that are unavailable/disabled. Such
         protocol names will simply be ignored.</p>
         
+        <div class="note"><h3>Note</h3>
+        <p>The <code>http/1.1</code> protocol is always available and
+            cannot be excluded by omitting it from this directive.
+            This directive controls which additional protocols are
+            available for negotiation, and, when used with
+            <code class="directive">ProtocolsHonorOrder</code>, their preference
+            order.</p></div>
+
         <p>Protocols specified in base servers are inherited for virtual hosts 
             only if the virtual host has no own Protocols directive. Or, the other
             way around, Protocols directives in virtual hosts replace any
@@ -4267,7 +4307,7 @@ as if 'QualifyRedirectURL On' was configured.</td></tr>
     <p>This directive allows to configure the size (in bytes) of the memory
     buffer used to read data from the network or files.</p>
 
-    <p>A larger buffer can increase peformances with larger data, but consumes
+    <p>A larger buffer can increase performances with larger data, but consumes
     more memory per connection. The minimum configurable size is
     <var>1024</var>.</p>
 
@@ -4736,11 +4776,19 @@ is accessed by an incompatible browser</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>core</td></tr>
 </table>
     <p>The <code class="directive">ServerPath</code> directive sets the legacy
-    URL pathname for a host, for use with <a href="../vhosts/">name-based virtual hosts</a>.</p>
+    URL pathname for a host, for use with <a href="../vhosts/name-based.html">name-based virtual hosts</a>.</p>
+
+    <div class="note"><p>This is a legacy feature for providing compatibility with
+    HTTP/1.0 clients that do not send a <code>Host:</code> header. When
+    such a client requests a URL matching a vhost's
+    <code class="directive">ServerPath</code>, the request is served from that
+    vhost. In practice, all modern HTTP clients send the
+    <code>Host:</code> header, making this directive unnecessary.</p></div>
 
 <h3>See also</h3>
 <ul>
-<li><a href="../vhosts/">Apache HTTP Server Virtual Host documentation</a></li>
+<li><a href="../vhosts/name-based.html">Name-based Virtual Host Support</a></li>
+<li><a href="../vhosts/examples.html#serverpath">ServerPath example</a></li>
 </ul>
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -5068,7 +5116,7 @@ certain events before failing a request</td></tr>
       </li>
 
       <li>When writing data to the client, the length of time to wait
-      for an acknowledgement of a packet if the send buffer is
+      for an acknowledgment of a packet if the send buffer is
       full.</li>
 
       <li>In <code class="module"><a href="../mod/mod_cgi.html">mod_cgi</a></code> and <code class="module"><a href="../mod/mod_cgid.html">mod_cgid</a></code>,
@@ -5152,7 +5200,7 @@ certain events before failing a request</td></tr>
         may be inadvertently derived from untrusted inputs. </p>
         <p> Windows systems should be isolated at the network layer from
         making outbound SMB/NTLM calls to unexpected destinations as a
-        more comprehensive and pre-emptive measure.</p>
+        more comprehensive and preemptive measure.</p>
     </div>
 
     <div class="warning"><h3>Directive Ordering</h3>
@@ -5450,7 +5498,7 @@ hostname or IP address</td></tr>
 
     <div class="warning"><h3>Note</h3>
         <p> This directive is evaluated at configuration processing time,
-        not at runtime. As a result, this directive cannot be conditonally
+        not at runtime. As a result, this directive cannot be conditionally
         evaluated by enclosing it in an <code class="directive"><a href="#if">&lt;If&gt;</a></code> section.</p>
     </div>
 

@@ -55,12 +55,10 @@ files to work with, you may need to resort to
 <seealso><a href="../mod/mod_rewrite.html">Module documentation</a></seealso>
 <seealso><a href="intro.html">mod_rewrite introduction</a></seealso>
 <seealso><a href="remapping.html">Redirection and remapping</a></seealso>
-<seealso><a href="access.html">Controlling access</a></seealso>
 <seealso><a href="vhosts.html">Virtual hosts</a></seealso>
-<seealso><a href="proxy.html">Proxying</a></seealso>
 <seealso><a href="rewritemap.html">Using RewriteMap</a></seealso>
-<seealso><a href="advanced.html">Advanced techniques</a></seealso>
-<!--<seealso><a href="avoid.html">When not to use mod_rewrite</a></seealso>-->
+<!--<seealso><a href="htaccess.html">Per-directory rewrites (.htaccess)</a></seealso>
+<seealso><a href="avoid.html">When not to use mod_rewrite</a></seealso>-->
 
 <section id="redirect">
 <title>Simple Redirection</title>
@@ -191,7 +189,7 @@ accomplish.</p>
 
 <p>One case where <directive module="mod_rewrite">RewriteRule</directive>
 is genuinely useful for proxying is when you want to proxy requests only
-for content that doesn't exist locally — for example, during a migration
+for content that doesn't exist locally - for example, during a migration
 from one server to another:</p>
 
 <highlight language="config">
@@ -240,6 +238,82 @@ and in certain other directives.</p>
 
 </section>
 
+<section id="fallback-resource"><title>Front Controller / Resource Routing</title>
+
+<p>A very common use of <module>mod_rewrite</module> is to route all
+requests for non-existent resources to a single front controller script
+(e.g. <code>index.php</code>). This is the basis of most modern web
+framework routing.</p>
+
+<p>The typical <module>mod_rewrite</module> approach is:</p>
+
+<highlight language="config">
+RewriteEngine On
+RewriteCond "%{REQUEST_FILENAME}" !-f
+RewriteCond "%{REQUEST_FILENAME}" !-d
+RewriteRule "^(.*)$" "/index.php" [L]
+</highlight>
+
+<p>This can be accomplished far more simply with the
+<directive module="mod_dir">FallbackResource</directive> directive:</p>
+
+<highlight language="config">
+FallbackResource /index.php
+</highlight>
+
+<p><directive module="mod_dir">FallbackResource</directive> does the
+same thing - requests for existing files and directories are served
+normally, while everything else is routed to the specified resource -
+but without the overhead and complexity of the rewrite engine. It works
+in both server configuration and <code>.htaccess</code> context.</p>
+
+<p>To disable a <code>FallbackResource</code> set in a parent
+directory:</p>
+
+<highlight language="config">
+FallbackResource disabled
+</highlight>
+
+</section>
+
+<section id="ifexpr"><title>Conditional Configuration with Expressions</title>
+
+<p>Many uses of <directive module="mod_rewrite">RewriteCond</directive>
+can be replaced by the
+<directive module="core" type="section">If</directive> directive, which
+supports a rich <a href="../expr.html">expression syntax</a> and
+integrates cleanly with other Apache directives.</p>
+
+<p>Redirect based on a query string parameter:</p>
+
+<highlight language="config">
+&lt;If "%{QUERY_STRING} =~ /lang=fr/"&gt;
+    Redirect "/welcome" "/bienvenue"
+&lt;/If&gt;
+</highlight>
+
+<p>Restrict access by request method:</p>
+
+<highlight language="config">
+&lt;If "%{REQUEST_METHOD} IN {'DELETE', 'PUT', 'PATCH'}"&gt;
+    Require ip 10.0.0.0/8
+&lt;/If&gt;
+</highlight>
+
+<p>Block requests missing a Host header (HTTP/1.0 clients):</p>
+
+<highlight language="config">
+&lt;If "-z req('Host')"&gt;
+    Require all denied
+&lt;/If&gt;
+</highlight>
+
+<p>See the <a href="../expr.html">expression evaluation
+documentation</a> for the full syntax available in
+<directive module="core" type="section">If</directive> blocks.</p>
+
+</section>
+
 <section id="blocked-inline-images">
 
   <title>Forbidding Image Hotlinking</title>
@@ -271,8 +345,8 @@ SetEnvIf Referer example\.com localreferer
     <dt>Discussion:</dt>
 
     <dd>
-      <p>If you need more complex logic — such as serving an
-      alternate image to hotlinkers instead of denying the request — you
+      <p>If you need more complex logic - such as serving an
+      alternate image to hotlinkers instead of denying the request - you
       may need <module>mod_rewrite</module>. The following examples
       rely on the <code>HTTP_REFERER</code> header, which is optional
       and can be spoofed. The <code>!^$</code> condition allows
@@ -455,7 +529,7 @@ seems like the right approach.</p>
       <p>Use <module>mod_proxy_balancer</module>, which provides a
       flexible and featureful load-balancing solution. It supports
       several balancing algorithms, session stickiness, health checks,
-      and dynamic configuration via the Balancer Manager — none of which
+      and dynamic configuration via the Balancer Manager - none of which
       are possible with a <module>mod_rewrite</module> approach.</p>
 
 <highlight language="config">

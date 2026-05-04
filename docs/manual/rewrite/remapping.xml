@@ -33,20 +33,12 @@ how you can use <module>mod_rewrite</module> to redirect and remap
 request. This includes many examples of common uses of <module>mod_rewrite</module>,
 including detailed descriptions of how each works.</p>
 
-<note type="warning">Note that many of these examples won't work unchanged in your
-particular server configuration, so it's important that you understand
-them, rather than merely cutting and pasting the examples into your
-configuration.</note>
-
 </summary>
 <seealso><a href="../mod/mod_rewrite.html">Module documentation</a></seealso>
 <seealso><a href="intro.html">mod_rewrite introduction</a></seealso>
 <!--<seealso><a href="remapping.html">Redirection and remapping</a></seealso>-->
-<seealso><a href="access.html">Controlling access</a></seealso>
 <seealso><a href="vhosts.html">Virtual hosts</a></seealso>
-<seealso><a href="proxy.html">Proxying</a></seealso>
 <seealso><a href="rewritemap.html">Using RewriteMap</a></seealso>
-<seealso><a href="advanced.html">Advanced techniques</a></seealso>
 <seealso><a href="avoid.html">When not to use mod_rewrite</a></seealso>
 
 <section id="old-to-new">
@@ -75,6 +67,230 @@ configuration.</note>
 RewriteEngine  on
 RewriteRule    "^<strong>/foo</strong>\.html$"  "<strong>/bar</strong>.html" [PT]
 </highlight>
+    </dd>
+</dl>
+
+</section>
+
+<section id="https-redirect">
+
+  <title>Forcing HTTPS</title>
+
+  <dl>
+    <dt>Description:</dt>
+
+    <dd>
+      <p>You want all HTTP requests to be redirected to HTTPS. This
+      is one of the most common uses of <module>mod_rewrite</module>,
+      but in most cases it is better accomplished without it.</p>
+    </dd>
+
+    <dt>Solution:</dt>
+
+    <dd>
+
+      <p>The preferred approach uses a
+      <directive module="mod_alias">Redirect</directive> directive in a
+      dedicated HTTP virtual host:</p>
+
+<highlight language="config">
+&lt;VirtualHost *:80&gt;
+    ServerName www.example.com
+    Redirect permanent "/" "https://www.example.com/"
+&lt;/VirtualHost&gt;
+
+&lt;VirtualHost *:443&gt;
+    ServerName www.example.com
+    # ... SSL configuration goes here
+&lt;/VirtualHost&gt;
+</highlight>
+
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>If you do not have access to the main server configuration and
+      must use a <code>.htaccess</code> file, <module>mod_rewrite</module>
+      is the appropriate tool:</p>
+
+<highlight language="config">
+RewriteEngine On
+RewriteCond "%{HTTPS}" !=on
+RewriteRule "^(.*)" "https://%{SERVER_NAME}$1" [R=301,L]
+</highlight>
+
+      <p>The <code>%{HTTPS}</code> variable is set to <code>on</code>
+      when the connection is using SSL/TLS, and is empty or
+      <code>off</code> otherwise. Using <code>R=301</code> issues a
+      permanent redirect, which tells search engines to update their
+      index.</p>
+
+      <p>See also the <a href="avoid.html#redirect">When not to use
+      mod_rewrite</a> document for more discussion of the
+      <code>Redirect</code> approach.</p>
+    </dd>
+  </dl>
+
+</section>
+
+<section id="trailing-slash">
+
+  <title>Trailing Slash Normalization</title>
+
+  <dl>
+    <dt>Description:</dt>
+
+    <dd>
+      <p>You want to ensure that URLs for directories always end with
+      a trailing slash, or conversely, that they never do. This is a
+      common requirement for SEO and for consistent URL handling by
+      web applications.</p>
+    </dd>
+
+    <dt>Solution:</dt>
+
+    <dd>
+      <p>To add a trailing slash to URLs that map to directories:</p>
+
+<highlight language="config">
+RewriteCond "%{REQUEST_FILENAME}" -d
+RewriteCond "%{REQUEST_URI}" "!/$"
+RewriteRule "^(.*)$" "$1/" [R=301,L]
+</highlight>
+
+      <p>To remove a trailing slash (except for actual directories):</p>
+
+<highlight language="config">
+RewriteCond "%{REQUEST_FILENAME}" !-d
+RewriteCond "%{REQUEST_URI}" "(.+)/$"
+RewriteRule "^" "%1" [R=301,L]
+</highlight>
+
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>Apache's <module>mod_dir</module> already handles trailing
+      slash redirects for real directories when
+      <directive module="mod_dir">DirectorySlash</directive> is enabled
+      (the default). You only need a <module>mod_rewrite</module> rule
+      if you want to enforce trailing slash behavior for URLs that do
+      not correspond to actual directories on disk, or if you want to
+      remove trailing slashes.</p>
+    </dd>
+  </dl>
+
+</section>
+
+<section id="www-resolve">
+
+  <title>Canonical www/non-www Hostname</title>
+
+  <dl>
+    <dt>Description:</dt>
+
+    <dd>
+      <p>You want to force all requests to use either
+      <code>www.example.com</code> or <code>example.com</code>,
+      not both. This ensures search engines treat them as one site
+      and prevents cookie scope issues.</p>
+    </dd>
+
+    <dt>Solution:</dt>
+
+    <dd>
+      <p>The best approach does not use <module>mod_rewrite</module> at
+      all. Place a <directive module="mod_alias">Redirect</directive>
+      in the virtual host for the non-canonical hostname:</p>
+
+<highlight language="config">
+# Redirect example.com -> www.example.com
+&lt;VirtualHost *:80 *:443&gt;
+    ServerName example.com
+    Redirect permanent "/" "https://www.example.com/"
+&lt;/VirtualHost&gt;
+</highlight>
+
+      <p>If you only have <code>.htaccess</code> access:</p>
+
+<highlight language="config">
+# Add www
+RewriteEngine On
+RewriteCond "%{HTTP_HOST}" "!^www\." [NC]
+RewriteRule "^(.*)" "https://www.%{HTTP_HOST}$1" [R=301,L]
+</highlight>
+
+<highlight language="config">
+# Remove www
+RewriteEngine On
+RewriteCond "%{HTTP_HOST}" "^www\.(.+)$" [NC]
+RewriteRule "^(.*)" "https://%1$1" [R=301,L]
+</highlight>
+
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>See also the <a href="#canonicalhost">Canonical Hostnames</a>
+      recipe above, which covers the general case. This recipe focuses
+      specifically on the www/non-www choice, which is the most common
+      hostname canonicalization need.</p>
+    </dd>
+  </dl>
+
+</section>
+
+<section id="front-controller">
+
+  <title>Front Controller / Application Routing</title>
+
+  <dl>
+    <dt>Description:</dt>
+
+    <dd>
+      <p>Most modern web frameworks (PHP, Python, Ruby, etc.) use a
+      single entry point - often called a "front controller" - that
+      handles all requests. URLs like <code>/products/widget</code>
+      are routed to <code>index.php</code> (or equivalent), which
+      parses the URL internally.</p>
+    </dd>
+
+    <dt>Solution:</dt>
+
+    <dd>
+
+    <note>For this use case, the
+    <directive module="mod_dir">FallbackResource</directive> directive is
+    almost always the better choice. See the
+    <a href="#fallback-resource">Fallback Resource</a> recipe above.</note>
+
+      <p>If you need <module>mod_rewrite</module> (for example, to add
+      additional conditions), the standard pattern is:</p>
+
+<highlight language="config">
+RewriteEngine On
+RewriteCond "%{REQUEST_FILENAME}" !-f
+RewriteCond "%{REQUEST_FILENAME}" !-d
+RewriteRule "^(.*)$" "/index.php" [L]
+</highlight>
+
+      <p>The <code>!-f</code> and <code>!-d</code> conditions skip the
+      rule for requests that map to an existing file or directory, so
+      static assets (images, CSS, JavaScript) are still served
+      directly.</p>
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>In <code>.htaccess</code> context, consider using
+      <code>[END]</code> instead of <code>[L]</code> to avoid
+      reprocessing loops. See the
+      <a href="htaccess.html#loops">.htaccess looping</a> discussion
+      for details.</p>
     </dd>
   </dl>
 
@@ -161,39 +377,14 @@ RedirectMatch "^/docs/(.*)" "http://new.example.com/docs/$1"
 Redirect "/docs/" "http://new.example.com/docs/"
 </highlight>
     </dd>
-  </dl>
 
-</section>
-
-<section id="static-to-dynamic">
-
-  <title>From Static to Dynamic</title>
-
-  <dl>
-    <dt>Description:</dt>
+    <dt>Discussion:</dt>
 
     <dd>
-      <p>How can we transform a static page
-      <code>foo.html</code> into a dynamic variant
-      <code>foo.cgi</code> in a seamless way, i.e. without notice
-      by the browser/user.</p>
-    </dd>
-
-    <dt>Solution:</dt>
-
-    <dd>
-      <p>We just rewrite the URL to the CGI-script and force the
-      handler to be <strong>cgi-script</strong> so that it is
-      executed as a CGI program.
-      This way a request to <code>/~quux/foo.html</code>
-      internally leads to the invocation of
-      <code>/~quux/foo.cgi</code>.</p>
-
-<highlight language="config">
-RewriteEngine  on
-RewriteBase    "/~quux/"
-RewriteRule    "^foo\.html$"  "foo.cgi"  [H=<strong>cgi-script</strong>]
-</highlight>
+      <p>For simple redirections to another server, the
+      <directive module="mod_alias">Redirect</directive> or
+      <directive module="mod_alias">RedirectMatch</directive> directives
+      are preferred, as they are simpler and more efficient.</p>
     </dd>
   </dl>
 
@@ -348,8 +539,21 @@ RewriteRule "^/?(.*)"      "http://www.%{HTTP_HOST}/$1" [L,R,NE]
     <p>These rulesets will work either in your main server configuration
     file, or in a <code>.htaccess</code> file placed in the <directive
     module="core">DocumentRoot</directive> of the server.</p>
-        </dd>
-      </dl>
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>If you have access to the server configuration, a
+      <directive module="mod_alias">Redirect</directive> in a dedicated
+      <directive module="core" type="section">VirtualHost</directive>
+      is the cleanest approach. Use the
+      <directive module="core" type="section">If</directive> directive
+      as a middle ground, and <module>mod_rewrite</module> only if you
+      are limited to <code>.htaccess</code>.</p>
+    </dd>
+
+</dl>
 
 </section>
 
@@ -392,62 +596,14 @@ RewriteRule "^(.+)" "%{DOCUMENT_ROOT}/<strong>dir2</strong>/$1"  [L]
 RewriteRule "^"     "-"                                          [PT]
 </highlight>
     </dd>
-  </dl>
 
-</section>
-
-<section id="archive-access-multiplexer">
-
-  <title>Redirecting to Geographically Distributed Servers</title>
-
-  <dl>
-    <dt>Description:</dt>
+    <dt>Discussion:</dt>
 
     <dd>
-    <p>We have numerous mirrors of our website, and want to redirect
-    people to the one that is located in the country where they are
-    located.</p>
-    </dd>
-
-    <dt>Solution:</dt>
-
-    <dd>
-    <p>Looking at the hostname of the requesting client, we determine
-    which country they are coming from. If we can't do a lookup on their
-    IP address, we fall back to a default server.</p>
-    <p>We'll use a <directive module="mod_rewrite">RewriteMap</directive>
-    directive to build a list of servers that we wish to use.</p>
-
-<highlight language="config">
-HostnameLookups on
-RewriteEngine on
-RewriteMap    multiplex         "txt:/path/to/map.mirrors"
-RewriteCond  "%{REMOTE_HOST}"   "([a-z]+)$"                [NC]
-RewriteRule  "^/(.*)$"          "${multiplex:<strong>%1</strong>|http://www.example.com/}$1"  [R,L]
-</highlight>
-
-<example>
-##  map.mirrors -- Multiplexing Map<br />
-<br />
-de        http://www.example.de/<br />
-uk        http://www.example.uk/<br />
-com       http://www.example.com/<br />
-##EOF##
-</example>
-    </dd>
-
-    <dt>Discussion</dt>
-    <dd>
-    <note type="warning">This ruleset relies on
-    <directive module="core">HostNameLookups</directive>
-    being set <code>on</code>, which can be
-    a significant performance hit.</note>
-
-    <p>The <directive module="mod_rewrite">RewriteCond</directive>
-    directive captures the last portion of the hostname of the
-    requesting client - the country code - and the following RewriteRule
-    uses that value to look up the appropriate mirror host in the map
-    file.</p>
+      <p>This is useful during migrations when content is being moved
+      between directories. For permanent setups, consider using
+      <directive module="mod_alias">Alias</directive> or symbolic links
+      instead.</p>
     </dd>
   </dl>
 
@@ -590,6 +746,15 @@ file, as well as in a &lt;Directory&gt; block.</p>
 
 </dd>
 
+<dt>Discussion:</dt>
+
+<dd>
+<p>The <directive module="mod_dir">FallbackResource</directive> directive
+is almost always the better choice for this use case. See the
+<a href="avoid.html#fallback-resource">When not to use mod_rewrite</a>
+document for a simpler one-line alternative.</p>
+</dd>
+
 </dl>
 
 </section>
@@ -606,7 +771,7 @@ of the URL.</dd>
 <dt>Solutions:</dt>
 <dd>
 <p> Many of the solutions in this section will all use the same condition,
-which leaves the matched value in the %2 backreference.  %1 is the beginining
+which leaves the matched value in the %2 backreference.  %1 is the beginning
 of the query string (up to the key of intererest), and %3 is the remainder. This
 condition is a bit complex for flexibility and to avoid double '&amp;&amp;' in the
 substitutions.</p>
@@ -652,6 +817,15 @@ RewriteRule "^/?path/([^/]+)/([^/]+)" "/path?$1=$2" [PT]
 
 </dd>
 
+<dt>Discussion:</dt>
+
+<dd>
+<p>See also the <a href="flags.html#flag_qsa">[QSA]</a> and
+<a href="flags.html#flag_qsd">[QSD]</a> flags, which control whether
+the original query string is appended to or discarded from the
+substitution.</p>
+</dd>
+
 </dl>
 </section>
 
@@ -682,6 +856,15 @@ RewriteRule "^/?path/([^/]+)/([^/]+)" "/path?$1=$2" [PT]
 RewriteEngine on
 RewriteRule   "^/~(<strong>([a-z])</strong>[a-z0-9]+)(.*)"  "/home/<strong>$2</strong>/$1/public_html$3"
 </highlight>
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>This technique is primarily useful for large hosting
+      environments with thousands of users. For most sites,
+      <module>mod_userdir</module> handles tilde-based user URLs
+      without requiring <module>mod_rewrite</module>.</p>
     </dd>
   </dl>
 
@@ -758,6 +941,15 @@ RewriteRule   "^foo\.html$"             "foo.night.html"
       content dynamically, and customizing it based on the time of day.</note>
 
     </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>Serving dynamic content through your application is almost
+      always a better approach. Caching by browsers, proxies, and
+      <module>mod_cache</module> makes time-based rewriting unreliable
+      in practice.</p>
+    </dd>
   </dl>
 
 </section>
@@ -800,6 +992,16 @@ RewriteRule "^(.+)\.html$"     "/regenerate_page.cgi"   [PT,L]
     static form. if documents need to be refreshed, they can be deleted
     from the document directory, and they will then be regenerated the
     next time they are requested.</p>
+    </dd>
+
+    <dt>Discussion:</dt>
+
+    <dd>
+      <p>Modern approaches such as <module>mod_cache</module>, CDN
+      caching layers, or application-level caching provide more robust
+      and controllable solutions for serving pre-generated static
+      content. The <code>-U</code> subrequest test used here also
+      carries a performance cost on every request.</p>
     </dd>
   </dl>
 
