@@ -1389,9 +1389,8 @@ EnableSendfile On
       <p><rfc section="19.6">2616</rfc> "Compatibility With Previous Versions" had
       encouraged HTTP servers to support legacy HTTP/0.9 requests. RFC 7230
       supersedes this with "The expectation to support HTTP/0.9 requests has
-      been removed" and offers additional comments in 
-      <a href="https://www.rfc-editor.org/rfc/rfc7230#appendix-A"
-        >RFC 7230 Appendix A</a>. The <code>Require1.0</code> option allows
+      been removed" and offers additional comments in
+      <rfc anchor="appendix-A">7230</rfc> Appendix A. The <code>Require1.0</code> option allows
       the user to remove support of the default <code>Allow0.9</code> option's
       behavior.</p>
 
@@ -1505,6 +1504,22 @@ ErrorDocument 401 /subscription_info.html
 ErrorDocument 403 "Sorry, can't allow you access today"
 ErrorDocument 403 Forbidden!
 ErrorDocument 403 /errors/forbidden.py?referrer=%{escape:%{HTTP_REFERER}}
+    </highlight>
+
+    <p>When the argument is a text string (i.e., not a path or URL),
+    it is sent to the client with a content type of
+    <code>text/html</code>, so you may include HTML markup. You can
+    use the backslash line-continuation character to spread the
+    document across multiple lines:</p>
+
+    <highlight language="config">
+ErrorDocument 403 "\
+&lt;html&gt;&lt;head&gt;\
+&lt;title&gt;403 Forbidden&lt;/title&gt;\
+&lt;/head&gt;&lt;body&gt;\
+&lt;h1&gt;Forbidden&lt;/h1&gt;\
+&lt;p&gt;You do not have permission to access this resource.&lt;/p&gt;\
+&lt;/body&gt;&lt;/html&gt;"
     </highlight>
 
     <p>Additionally, the special value <code>default</code> can be used

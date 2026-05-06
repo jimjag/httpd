@@ -1024,20 +1024,22 @@ named file-system directory, sub-directories, and their contents.</td></tr>
     the corresponding <code class="directive">&lt;Directory&gt;</code> will
     be applied.</p>
 
-   <p><strong>Note that the default access for
+    <div class="warning">
+    <p>The default access for
     <code>&lt;Directory "/"&gt;</code> is to permit all access.
     This means that Apache httpd will serve any file mapped from an URL. It is
     recommended that you change this with a block such
-    as</strong></p>
+    as</p>
 
     <pre class="prettyprint lang-config">&lt;Directory "/"&gt;
   Require all denied
 &lt;/Directory&gt;</pre>
 
 
-    <p><strong>and then override this for directories you
+    <p>Then override this for directories you
     <em>want</em> accessible. See the <a href="../misc/security_tips.html">Security Tips</a> page for more
-    details.</strong></p>
+    details.</p>
+    </div>
 
     <p>The directory sections occur in the <code>httpd.conf</code> file.
     <code class="directive">&lt;Directory&gt;</code> directives
@@ -2238,8 +2240,8 @@ media type in the HTTP Content-Type header field</td></tr>
       <p><a href="https://www.rfc-editor.org/rfc/rfc2616#section-19.6">RFC 2616</a> "Compatibility With Previous Versions" had
       encouraged HTTP servers to support legacy HTTP/0.9 requests. RFC 7230
       supersedes this with "The expectation to support HTTP/0.9 requests has
-      been removed" and offers additional comments in 
-      <a href="https://www.rfc-editor.org/rfc/rfc7230#appendix-A">RFC 7230 Appendix A</a>. The <code>Require1.0</code> option allows
+      been removed" and offers additional comments in
+      <a href="https://www.rfc-editor.org/rfc/rfc7230#appendix-A">RFC 7230</a> Appendix A. The <code>Require1.0</code> option allows
       the user to remove support of the default <code>Allow0.9</code> option's
       behavior.</p>
 
@@ -4752,6 +4754,12 @@ itself</td></tr>
     httpd: Could not reliably determine the server's fully qualified domain name, using rocinante.local for ServerName
     </code></p></div>
     </div>
+
+    <div class="warning">
+    <p>IPv6 addresses in <code class="directive">ServerName</code> are not
+        currently supported and will produce a startup error, even when
+        enclosed in square brackets. This is a
+        <a href="https://bz.apache.org/bugzilla/show_bug.cgi?id=52178">known issue</a>.</p></div>
 
 
 <h3>See also</h3>
