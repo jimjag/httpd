@@ -414,21 +414,22 @@ RewriteRule "^/ex/(.*)" "${examplemap:$1}"
 
 <usage>
       <p>The <directive>RewriteBase</directive> directive specifies the
-      URL prefix to be used for per-directory (htaccess)
+      URL prefix to be used for
+      <glossary ref="perdirectory">per-directory</glossary>
       <directive module="mod_rewrite">RewriteRule</directive> directives that
       substitute a relative path.</p>
       <p> This directive is <em>required</em> when you use a relative path
-      in a substitution in <glossary ref="perdirectory">per-directory</glossary> context unless any 
+      in a substitution in <glossary ref="perdirectory">per-directory</glossary> context unless any
       of the following conditions are true:</p>
       <ul>
           <li> The original request, and the substitution, are underneath the
                <directive module="core">DocumentRoot</directive>
                (as opposed to reachable by other means, such as
                <directive module="mod_alias">Alias</directive>).</li>
-          <li> The <em>filesystem</em> path to the directory containing the
-               <directive module="mod_rewrite">RewriteRule</directive>,
-               suffixed by the relative
-               substitution is also valid as a URL path on the server
+          <li> The <em>filesystem</em> path to the directory containing
+               the <glossary ref="perdirectory">per-directory</glossary>
+               configuration, suffixed by the relative
+               substitution is also valid as a URL-path on the server
                (this is rare).</li>
           <li> In Apache HTTP Server 2.4.16 and later, this directive may be
                 omitted when the request is mapped via
@@ -1134,13 +1135,14 @@ module="core">Directory</directive> sections, with some additional
 complexity.</li>
 
 <li>To enable the rewrite engine in this context, you need to set
-"<code>RewriteEngine On</code>" <strong>and</strong>
-the <code>FollowSymLinks</code> or <code>SymLinksIfOwnerMatch</code>
-<directive module="core">Options</directive> must be enabled. If your
-administrator has disabled override of these options for a user's
-directory via <directive module="core">AllowOverride</directive>, the
-rewrite engine cannot be used in <code>.htaccess</code> files in that
-directory.</li>
+<code>RewriteEngine On</code> <strong>and</strong>
+at least one of the <code>FollowSymLinks</code> or
+<code>SymLinksIfOwnerMatch</code>
+<directive module="core">Options</directive> must be enabled. Note
+that these options cannot be set in a distributed configuration file
+(<code>.htaccess</code>) unless
+<directive module="core">AllowOverride</directive> permits it
+in the server configuration.</li>
 
 <li>See the <directive module="mod_rewrite">RewriteBase</directive>
 directive for more information regarding what prefix will be added back to
