@@ -82,6 +82,124 @@ and URL matching.</p>
 
 </section>
 
+<section id="order"><title>Module Processing Order</title>
+
+    <p><module>mod_rewrite</module> and <module>mod_alias</module> both
+    operate during the URL-to-filename translation phase, but
+    <module>mod_rewrite</module> runs <strong>first</strong> regardless
+    of the order in which directives appear in the configuration file.
+    This is determined by the hook priority each module registers, not
+    by source order.</p>
+
+    <p>The practical consequence: when both <directive
+    module="mod_rewrite">RewriteRule</directive> and <directive
+    module="mod_alias">Redirect</directive> (or <directive
+    module="mod_alias">RedirectMatch</directive>) are present in the
+    same server or virtual-host context, the rewrite rules are
+    evaluated first. If a <code>RewriteRule</code> matches and rewrites
+    the URL-path (or returns a redirect), <code>Redirect</code> never sees
+    the request.</p>
+
+    <highlight language="config">
+# In this configuration, the Redirect is never reached for /old
+# because the RewriteRule matches first — even though
+# the Redirect appears earlier in the file.
+Redirect "/old" "http://example.com/new"
+RewriteRule "^/old" "/other" [L]
+</highlight>
+
+    <note><title>Per-directory context reverses the order</title>
+    <p>In <glossary ref="perdirectory">per-directory context</glossary>,
+    the situation is different. <module>mod_alias</module> directives like
+    <code>Redirect</code> still run in the URL-to-filename translation
+    phase, but <module>mod_rewrite</module> rules run later, in the
+    Fixup phase. This means that in per-directory context,
+    <code>Redirect</code> is evaluated <em>before</em>
+    <code>RewriteRule</code>.</p>
+    </note>
+
+    <p>Because of this inconsistency between contexts, mixing
+    <module>mod_rewrite</module> and <module>mod_alias</module>
+    directives in the same scope is a common source of confusion. The
+    simplest advice: choose one module for a given task. If you need
+    rewrite conditions or pattern matching, use
+    <code>RewriteRule</code> exclusively. If a simple prefix redirect
+    suffices, use <code>Redirect</code> and don't add rewrite rules
+    that might interact with it.</p>
+
+</section>
+
+<section id="encoding"><title>URL Encoding and Decoding</title>
+
+    <p>Apache httpd unescapes URL-encoded characters in the request URL-path before any
+    <directive module="mod_rewrite">RewriteRule</directive> pattern
+    matching takes place. A request for
+    <code>/my%20page/cats%3Fdogs</code> is decoded to
+    <code>/my page/cats?dogs</code>, and that decoded string is what the
+    <code>RewriteRule</code> pattern matches against.</p>
+
+    <p>This means you cannot write a pattern that matches the literal
+    URL-encoded form. If you need to distinguish
+    <code>/horses%2Fponies</code> from <code>/horses/ponies</code>, use
+    <code>%{THE_REQUEST}</code> in a <directive
+    module="mod_rewrite">RewriteCond</directive> — it preserves the
+    original request line exactly as the client sent it, before any
+    decoding:</p>
+
+<highlight language="config">
+# Match only the literally-encoded %2F, not a real path separator
+RewriteCond "%{THE_REQUEST}" "/horses%2F"
+RewriteRule "^/horses/ponies$" "/special-handler" [L]
+</highlight>
+
+    <p>After substitution, <module>mod_rewrite</module> re-encodes the
+    resulting URL-path for output. Several flags control this behavior:</p>
+
+    <ul>
+      <li><a href="flags.html#flag_b">[B]</a> — re-escape
+      backreferences so that special characters captured from the
+      decoded URL-path are not interpreted as delimiters in the
+      substitution.</li>
+
+      <li><a href="flags.html#flag_bnp">[BNP]</a> — when [B] is
+      active, encode spaces as <code>%20</code> rather than
+      <code>+</code> (appropriate for path components, not query
+      strings).</li>
+
+      <li><a href="flags.html#flag_ne">[NE]</a> — suppress the
+      default escaping of special characters in the substitution
+      result, allowing literal <code>#</code>, <code>?</code>, and
+      other characters to pass through unmodified on external
+      redirects.</li>
+    </ul>
+
+    <section id="allowencodedslashes">
+    <title>AllowEncodedSlashes</title>
+
+    <p>By default, Apache returns 404 for any URL containing an encoded
+    slash (<code>%2F</code>). The <directive
+    module="core">AllowEncodedSlashes</directive> directive controls
+    this behavior:</p>
+
+    <ul>
+      <li><code>Off</code> (default) — reject <code>%2F</code> with
+      404.</li>
+      <li><code>On</code> — allow <code>%2F</code> and decode it to
+      <code>/</code> before passing to handlers.</li>
+      <li><code>NoDecode</code> — allow <code>%2F</code> but keep it
+      in encoded form, letting the backend application distinguish it
+      from a real path separator.</li>
+    </ul>
+
+    <p>When using the <a href="flags.html#flag_b">[B]</a> flag with
+    URLs that may contain encoded slashes, you typically need
+    <code>AllowEncodedSlashes NoDecode</code> to prevent Apache from
+    rejecting the re-encoded result.</p>
+
+    </section>
+
+</section>
+
 <section id="InternalRuleset"><title>Ruleset Processing</title>
 
       <p>Now when <module>mod_rewrite</module> is triggered in these two API phases, it

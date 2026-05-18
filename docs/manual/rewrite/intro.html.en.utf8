@@ -2,6 +2,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+<meta content="width=device-width, initial-scale=1" name="viewport" />
 <!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
@@ -22,6 +23,7 @@
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Rewrite</a></div><div id="page-content"><div id="preamble"><h1>Apache mod_rewrite Introduction</h1>
+<button aria-label="Toggle language list" class="lang-toggle"><svg xmlns="http://www.w3.org/2000/svg" stroke-width="2" stroke="currentColor" fill="none" viewBox="0 0 24 24" height="16" width="16"><circle r="10" cy="12" cx="12" /><line y2="12" x2="22" y1="12" x1="2" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg></button>
 <div class="toplang">
 <p><span>Available Languages: </span><a href="../de/rewrite/intro.html" hreflang="de" rel="alternate" title="Deutsch">&nbsp;de&nbsp;</a> |
 <a href="../en/rewrite/intro.html" title="English">&nbsp;en&nbsp;</a> |
@@ -48,7 +50,7 @@ but this doc should help the beginner get their feet wet.
 <li><img alt="" src="../images/down.gif" /> <a href="#rewritemap">Rewrite maps</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#htaccess">.htaccess files</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#security">Security Considerations</a></li>
-</ul><h3>See also</h3><ul class="seealso"><li><a href="../mod/mod_rewrite.html">Module documentation</a></li><li><a href="remapping.html">Redirection and remapping</a></li><li><a href="htaccess.html">Per-directory Rewrites</a></li><li><a href="flags.html">RewriteRule Flags</a></li><li><a href="vhosts.html">Virtual hosts</a></li><li><a href="rewritemap.html">Using RewriteMap</a></li><li><a href="avoid.html">When not to use mod_rewrite</a></li><li><a href="tech.html">Technical details</a></li><li><a href="#comments_section">Comments</a></li></ul></div>
+</ul><h3>See also</h3><ul class="seealso"><li><a href="../mod/mod_rewrite.html">Module documentation</a></li><li><a href="remapping.html">Redirection and remapping</a></li><li><a href="htaccess.html">Per-directory Rewrites</a></li><li><a href="flags.html">RewriteRule Flags</a></li><li><a href="vhosts.html">Virtual hosts</a></li><li><a href="rewritemap.html">Using RewriteMap</a></li><li><a href="avoid.html">When not to use mod_rewrite</a></li><li><a href="tech.html">Technical details</a></li></ul></div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="introduction" id="introduction">Introduction</a> <a title="Permanent link" href="#introduction" class="permalink">&para;</a></h2>
@@ -171,10 +173,21 @@ well as write your own.</p>
       not <code>c/t</code></td></tr>
 </table>
 
-<p>In <code class="module"><a href="../mod/mod_rewrite.html">mod_rewrite</a></code> the <code>!</code> character can be
+<p>The <code>!</code> (Not) character can be
 used before a regular expression to negate it. This is, a string will
 be considered to have matched only if it does not match the rest of
 the expression.</p>
+
+<p>When using <code>!</code> to negate a pattern, note that
+<a href="#InternalBackRefs">backreferences</a> (e.g.
+<code>$1</code>, <code>$2</code>) are not available, since the
+pattern does not match.</p>
+
+<p>For example, the following will redirect any request that does
+<em>not</em> start with <code>/admin</code></p>
+
+<pre class="prettyprint lang-config">RewriteRule "!^/admin" "/xyz.html" [R,L]</pre>
+
 
 
 
@@ -222,14 +235,26 @@ of three arguments separated by spaces. The arguments are</p>
 </ol>
 
 <p>The <var>Pattern</var> is a <a href="#regex">regular expression</a>.
-It is initially (for the first rewrite rule or until a substitution occurs)
-matched against the URL-path of the incoming request (the part after the
-hostname but before any question mark indicating the beginning of a query
-string) or, in per-directory context, against the request's path relative
-to the directory for which the rule is defined. Once a substitution has
-occurred, the rules that follow are matched against the substituted
-value.
+In server or virtualhost context, it is matched against the
+%-decoded <a href="../directive-dict.html#Syntax">URL-path</a>
+of the incoming request — the part after the hostname and port,
+and not including the query string (e.g., <code>/app/index.html</code>).
+In <a class="glossarylink" href="../glossary.html#perdirectory" title="see glossary">per-directory context</a>,
+the pattern is matched against the request's path relative to the
+directory for which the rule is defined (with the directory prefix
+stripped — see <a href="htaccess.html#path-stripping">Per-directory
+Rewrites</a> for details).
 </p>
+
+<p>Once a substitution has occurred, any rules that follow are
+matched against the substituted value.</p>
+
+<p>The <var>Pattern</var> is matched only against the URL-path
+— not the hostname, port, or query string. To match against
+those, use a
+<code class="directive"><a href="../mod/mod_rewrite.html#rewritecond">RewriteCond</a></code> with the
+<code>%{HTTP_HOST}</code>, <code>%{SERVER_PORT}</code>, or
+<code>%{QUERY_STRING}</code> variables respectively.</p>
 
 <p class="figure">
       <img src="../images/syntax_rewriterule.png" alt="Syntax of the RewriteRule directive" /><br />
@@ -463,6 +488,27 @@ restrictions) as defense in depth.</p>
 <p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="https://cwiki.apache.org/confluence/display/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a> | <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2">Report a bug</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();
+}
+var langToggle = document.querySelector('.lang-toggle');
+var topLang = document.querySelector('.toplang');
+if (langToggle && topLang) {
+    langToggle.addEventListener('click', function() { topLang.classList.toggle('open'); });
+}
+var qv = document.getElementById('quickview');
+if (qv) {
+    document.body.appendChild(qv);
+    var qvBtn = document.createElement('button');
+    qvBtn.className = 'qv-toggle';
+    qvBtn.setAttribute('aria-label', 'Toggle page navigation');
+    qvBtn.innerHTML = '&#9776;';
+    document.body.appendChild(qvBtn);
+    qvBtn.addEventListener('click', function() {
+        var isOpen = qv.classList.toggle('open');
+        if (isOpen) {
+            qv.style.top = window.scrollY + 10 + 'px';
+        }
+    });
+    window.addEventListener('scroll', function() { qv.classList.remove('open'); });
 }
 //--><!]]></script>
 </body></html>

@@ -165,10 +165,22 @@ well as write your own.</p>
       not <code>c/t</code></td></tr>
 </table>
 
-<p>In <module>mod_rewrite</module> the <code>!</code> character can be
+<p>The <code>!</code> (Not) character can be
 used before a regular expression to negate it. This is, a string will
 be considered to have matched only if it does not match the rest of
 the expression.</p>
+
+<p>When using <code>!</code> to negate a pattern, note that
+<a href="#InternalBackRefs">backreferences</a> (e.g.
+<code>$1</code>, <code>$2</code>) are not available, since the
+pattern does not match.</p>
+
+<p>For example, the following will redirect any request that does
+<em>not</em> start with <code>/admin</code></p>
+
+<highlight language="config">
+RewriteRule "!^/admin" "/xyz.html" [R,L]
+</highlight>
 
 </section>
 
@@ -218,14 +230,32 @@ of three arguments separated by spaces. The arguments are</p>
 </ol>
 
 <p>The <var>Pattern</var> is a <a href="#regex">regular expression</a>.
-It is initially (for the first rewrite rule or until a substitution occurs)
-matched against the URL-path of the incoming request (the part after the
-hostname but before any question mark indicating the beginning of a query
-string) or, in per-directory context, against the request's path relative
-to the directory for which the rule is defined. Once a substitution has
-occurred, the rules that follow are matched against the substituted
-value.
+In server or virtualhost context, it is matched against the
+%-decoded <a href="../directive-dict.html#Syntax">URL-path</a>
+of the incoming request &mdash; the part after the hostname and port,
+and not including the query string (e.g., <code>/app/index.html</code>).
+In <glossary ref="perdirectory">per-directory context</glossary>,
+the pattern is matched against the request's path relative to the
+directory for which the rule is defined (with the directory prefix
+stripped &mdash; see <a href="htaccess.html#path-stripping">Per-directory
+Rewrites</a> for details).
 </p>
+
+<p>Once a substitution has occurred, any rules that follow are
+matched against the substituted value.</p>
+
+<p>The <var>Pattern</var> is matched only against the URL-path
+&mdash; not the hostname, port, or query string. To match against
+those, use a
+<directive module="mod_rewrite">RewriteCond</directive> with the
+<code>%{HTTP_HOST}</code>, <code>%{SERVER_PORT}</code>, or
+<code>%{QUERY_STRING}</code> variables respectively.</p>
+
+<note><module>mod_rewrite</module> operates entirely on the URL-path
+and HTTP headers. It cannot inspect the request body (e.g., POST
+data). If you need to make routing decisions based on request body
+content, handle that in your application logic or use a module such
+as <module>mod_request</module> paired with a custom filter.</note>
 
 <p class="figure">
       <img src="../images/syntax_rewriterule.png"
