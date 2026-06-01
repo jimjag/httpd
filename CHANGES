@@ -1,6 +1,7 @@
                                                          -*- coding: utf-8 -*-
 Changes with Apache 2.4.68
 
+<<<<<<< HEAD
 Changes with Apache 2.4.67
 
   *) SECURITY: CVE-2026-34059: Apache HTTP Server: mod_proxy_ajp:
@@ -102,6 +103,16 @@ Changes with Apache 2.4.67
   *) mod_http2: update to version 2.0.39
      Remove streams own memory allocator after reports of memory problems
      with third party modules.
+=======
+  *) mpm_motorz, mod_http2: Rework the MotorZ MPM with
+     multi-poller scale-out (new PollersPerChild directive) and async
+     keep-alive/HTTP/2 handoff, plus concurrency hardening and bug
+     fixes. Includes a required mod_http2 fix so a client's graceful
+     GOAWAY does not drop an in-flight response under async MPMs, and
+     a self-contained motorz test suite.  [Jim Jagielski]
+
+  *) mod_http2: improved early cleanup of streams.
+>>>>>>> b79e969e4a (mpm_motorz: performance, bug fixes, concurrency hardening, async HTTP/2)
      [Stefan Eissing]
 
   *) mod_http2: update to version 2.0.38
