@@ -72,12 +72,12 @@ it will tell you exactly how each rule is processed.</p>
 
 <section id="regex"><title>Regular Expressions</title>
 
-<p><module>mod_rewrite</module> uses the <a href="https://www.pcre.org/">Perl Compatible
-Regular Expression</a> vocabulary. In this document, we do not attempt
+<p><module>mod_rewrite</module> uses the <a href="https://www.pcre.org/current/doc/html/pcre2syntax.html">Perl Compatible
+Regular Expressions</a> vocabulary, via the PCRE2 library. In this document, we do not attempt
 to provide a detailed reference to regular expressions. For that, we
-recommend the <a href="https://www.pcre.org/pcre.txt">PCRE man pages</a>, the
+recommend the <a href="https://www.pcre.org/current/doc/html/pcre2syntax.html">PCRE2 documentation</a>, the
 <a href="https://perldoc.perl.org/perlre">Perl regular
-expression man page</a>, and <a
+expressions man page</a>, and <a
 href="https://www.oreilly.com/library/view/mastering-regular-expressions/0596528124/">Mastering
 Regular Expressions, by Jeffrey Friedl</a> (the third edition is from
 2006, but regular expression syntax is essentially unchanged, and this
@@ -214,8 +214,10 @@ RewriteRule "!^/admin" "/xyz.html" [R,L]
       <img src="../images/rewrite_backreferences.png"
       alt="Flow of RewriteRule and RewriteCond matching" /><br />
       <dfn>Figure 1:</dfn> The back-reference flow through a rule.<br />
-      In this example, a request for <code>/test/1234</code> would be transformed into <code>/admin.foo?page=test&amp;id=1234&amp;host=admin.example.com</code>.
+      In this example, a request for <code>/test/1234</code> to host <code>admin.example.com</code> would be transformed into <code>/admin.foo?page=test&amp;id=1234&amp;host=admin.example.com</code>, provided that <code>%{DOCUMENT_ROOT}/test</code> is not an existing file.
 </p>
+      <p>See also <a href="tech.html#InternalRuleset">Technical Details</a>
+      for a diagram showing backreference flow with multiple conditions.</p>
 
 </section>
 </section>
