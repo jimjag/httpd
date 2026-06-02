@@ -61,6 +61,7 @@
 <seealso><a href="mod/mod_authnz_ldap.html#reqdn">Require ldap-dn</a></seealso>
 <seealso><a href="mod/mod_authnz_ldap.html#reqattribute">Require ldap-attribute</a></seealso>
 <seealso><a href="mod/mod_authnz_ldap.html#reqfilter">Require ldap-filter</a></seealso>
+<seealso><a href="mod/mod_authnz_ldap.html#reqsearch">Require ldap-search</a></seealso>
 <seealso><a href="mod/mod_authz_dbd.html#reqgroup">Require dbd-group</a></seealso>
 <seealso><a href="mod/mod_authz_dbm.html#reqgroup">Require dbm-group</a></seealso>
 <seealso><a href="mod/mod_authz_groupfile.html#reqgroup">Require group</a></seealso>
@@ -68,6 +69,7 @@
 <seealso><directive module="mod_ssl">SSLRequire</directive></seealso>
 <seealso><directive module="mod_log_debug">LogMessage</directive></seealso>
 <seealso><module>mod_include</module></seealso>
+<seealso><a href="env.html">Environment Variables in Apache httpd</a></seealso>
 
   <section id="grammar">
     <title>Grammar in Backus-Naur Form notation</title>
@@ -159,6 +161,12 @@ listfunction ::= listfuncname "<strong>(</strong>" word "<strong>)</strong>"
     directive is evaluated before authentication is done. Therefore,
     <code>%{REMOTE_USER}</code> will not be set in this case.</p>
 
+    <p>For information on setting and manipulating request environment
+    variables (using <directive module="mod_env">SetEnv</directive>,
+    <directive module="mod_setenvif">SetEnvIf</directive>,
+    <module>mod_rewrite</module>'s <code>[E=...]</code> flag, and
+    others), see <a href="env.html">Environment Variables in Apache httpd</a>.</p>
+
     <p>The following variables provide the values of the named HTTP request
     headers. The values of other headers can be obtained with the
     <code>req</code> <a href="#functions">function</a>. Using these
@@ -194,7 +202,10 @@ listfunction ::= listfuncname "<strong>(</strong>" word "<strong>)</strong>"
     <tr><td><code>REQUEST_SCHEME</code></td>
         <td>The scheme part of the request's URI</td></tr>
     <tr><td><code>REQUEST_URI</code></td>
-        <td>The path part of the request's URI</td></tr>
+        <td>The path part of the request's URI, excluding the query
+            string.  Note that this differs from the CGI environment
+            variable of the same name, which includes the query string.
+            </td></tr>
     <tr><td><code>DOCUMENT_URI</code></td>
         <td>Same as <code>REQUEST_URI</code></td></tr>
     <tr><td><code>REQUEST_FILENAME</code></td>
@@ -557,6 +568,12 @@ listfunction ::= listfuncname "<strong>(</strong>" word "<strong>)</strong>"
     >If</directive>&gt;, the resolution will generally occur later, but the 
     exact timing depends on the directive the expression has been used within.
     </note>
+
+    <p>The <code>reqenv</code> function can be used to test
+    <a href="env.html#special">special-purpose environment variables</a>
+    (such as <code>no-gzip</code>, <code>nokeepalive</code>, etc.) as
+    well as any variables set via <a href="env.html#setting">SetEnv,
+    SetEnvIf, or mod_rewrite</a>.</p>
 
     <p>When the functions <code>req</code> or <code>http</code> are used,
     the header name will automatically be added to the Vary header of the

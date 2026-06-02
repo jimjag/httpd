@@ -126,7 +126,7 @@
         <message id="apachehttpserver">Apache HTTP Sunucusu Sürüm
             &httpd.major;.&httpd.minor;</message>
         <message id="apachedocalt">[APACHE BELGELEME]</message>
-        <message id="search">Google’de Ara</message> <!-- search button -->
+        <message id="search">Google'de Ara</message> <!-- search button -->
         <message id="index">Dizin</message> <!-- deprecated -->
         <message id="home">Baş Sayfa</message> <!-- deprecated -->
         <message id="comments">Yorumlar</message>
@@ -161,6 +161,8 @@
         </message>
         <message id="retired.current">Apache HTTP Sunucusu belgelerinin güncel sürümü</message>
         <message id="retired.document">Bu belgenin güncel sürümüne erişmek için <link>bu bağlantıyı</link> kullanabilirsiniz.</message>
+
+        <message id="permalink">Permanent link</message>
 
     </messages>
 </language>

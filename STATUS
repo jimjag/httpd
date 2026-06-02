@@ -29,7 +29,12 @@ Release history:
     [NOTE that x.{odd}.z versions are strictly Alpha/Beta releases,
           while x.{even}.z versions are Stable/GA releases.]
 
-    2.4.63  : In development
+    2.4.68  : In development
+    2.4.67  : Released on May 04, 2026
+    2.4.66  : Released on December 04, 2025
+    2.4.65  : Released on July 23, 2025
+    2.4.64  : Released on July 10, 2025
+    2.4.63  : Released on January 23, 2025
     2.4.62  : Released on July 17, 2024
     2.4.61  : Released on July 03, 2024
     2.4.60  : Released on July 01, 2024
@@ -157,58 +162,82 @@ RELEASE SHOWSTOPPERS:
 PATCHES ACCEPTED TO BACKPORT FROM TRUNK:
   [ start all new proposals below, under PATCHES PROPOSED. ]
 
+  *) mod_http2: update to v2.0.39
+     https://github.com/apache/httpd/pull/602 should have been applied!
+     trunk patch: https://svn.apache.org/r1931949
+     2.4.x patch: svn merge -c 1931949 ^/httpd/httpd/trunk .
+     +1: icing, steffenal, covener
+
+  *) mod_dav_fs: Fix missing 404 with DELETE race
+     trunk patch: https://svn.apache.org/r1926172
+     2.4.x patch: svn merge -c 1926172 ^/httpd/httpd/trunk .
+                  or https://github.com/apache/httpd/pull/583
+     +1: jorton, rpluem, covener
+
+  *) mod_unixd: sync with trunk.
+     trunk patch: https://svn.apache.org/r1617196
+                  https://svn.apache.org/r1617201
+                  https://svn.apache.org/r1618778
+                  https://svn.apache.org/r1897269
+                  https://svn.apache.org/r1927804
+     2.4.x patch: svn merge -c 1617196,1617201,1618778,1897269,1927804,1930444 ^/httpd/httpd/trunk .
+                  (or https://github.com/apache/httpd/pull/588)
+     +1: jorton, rpluem, covener
+
+  *) Update to mod_http2 v2.0.40
+     trunk patch: https://svn.apache.org/r1934628
+     2.4.x patch: svn merge -c 1934628 ^/httpd/httpd/trunk .
+     +1: icing, covener, jim
+
+  *) Update to mod_http2 v2.0.41
+     trunk patch: https://svn.apache.org/r1934678
+     2.4.x patch: svn merge -c 1934678 ^/httpd/httpd/trunk .
+     +1: icing, covener, jim
+
+  *) Update to mod_http2 v2.0.42
+     trunk patch: https://svn.apache.org/r1934743
+     2.4.x patch: svn merge -c 1934743 ^/httpd/httpd/trunk .
+     +1: icing, covener, jim
+
+  *) core: Add millisecond time formatting for ErrorLogFormat
+     trunk patch: https://svn.apache.org/r1931452
+                  https://svn.apache.org/r1931453
+     2.4.x patch: svn merge -c 1931452,1931453 ^/httpd/httpd/trunk .
+                  or https://github.com/apache/httpd/pull/599
+     +1: jorton, covener, jim
+
+  *) Fix build failure with gcc 16.1.1 in maintainer-mode. Apparently such warnings were
+     tolorated with 15.2.1, but not anymore.
+     trunk patch: https://svn.apache.org/r1934594
+                  https://svn.apache.org/r1934597
+     2.4.x patch: svn merge -c 1934594,1934597 ^/httpd/httpd/trunk .
+     +1: jailletc36, jim, jorton
 
 PATCHES PROPOSED TO BACKPORT FROM TRUNK:
   [ New proposals should be added at the end of the list ]
 
-  *) Add the ldap-search option to mod_authnz_ldap, allowing authorization
-     to be based on arbitrary expressions that do not include the username.
-     Make sure that when ldap searches are too long, we explicitly log the
-     error.
+  *) Fix compatibility with OpenSSL 4.0
+     trunk patch: https://svn.apache.org/1933612 [plus many CI changes]
+     2.4.x patch: https://github.com/apache/httpd/pull/642
+     +1: jorton, 
+
+  *) mod_include: handle parse error in conditionals by supressing output
      Trunk version of patch:
-        https://svn.apache.org/r1589993
-        https://svn.apache.org/r1591012
-        https://svn.apache.org/r1596108
-        https://svn.apache.org/r1745033
-        https://svn.apache.org/r1913958
-        https://svn.apache.org/r1913959
-        https://svn.apache.org/r1914091
-        https://svn.apache.org/r1914281
+        https://svn.apache.org/r1934852
      Backport version for 2.4.x of patch:
-        https://svn.apache.org/repos/asf/httpd/httpd/patches/2.4.x/httpd-2.4-httpd-2.4-ldap-search5.patch
-     +1: minfrin, covener
-     rpluem says: https://svn.apache.org/repos/asf/httpd/httpd/patches/2.4.x/httpd-2.4-ldap-search5.patch returns 404
-       covener: fixed slightly diff URL above
+       https://patch-diff.githubusercontent.com/raw/apache/httpd/pull/658.diff
+     Can be applied via apply_backport_pr.sh 658
+     +1: covener,
 
-  *) mod_proxy: Honor parameters of ProxyPassMatch workers with substitution
-                in the host name or port. PR 69233.
-     trunk patch: https://svn.apache.org/r1912462
-                  https://svn.apache.org/r1919617
-                  https://svn.apache.org/r1919619
-     2.4.x patch: https://patch-diff.githubusercontent.com/raw/apache/httpd/pull/469.diff
-     PR: https://github.com/apache/httpd/pull/469
-     +1: ylavic, rpluem
+  *) mod_ssl: Expose serialNumber (2.5.4.5) as standard env var from certificate DN
+     trunk patch: https://svn.apache.org/r1933908
+     2.4.x patch: svn merge -c 1933908 ^/httpd/httpd/trunk .
+     +1: michaelo
 
-  *) CMake: Remove awk dependency when building using CMake. Before this awk was
-     required for -DWITH_MODULES option.
-     trunk patch: https://svn.apache.org/r1919413
-                  https://svn.apache.org/r1919587
-                  https://svn.apache.org/r1919602
-     2.4.x patch: svn merge -c r1919413 -c r1919587 -c r1919602 ^/httpd/httpd/trunk .
-     +1: ivan
-     +0: jorton - falls under RTC exception for "non-Unix build" 
-
-  *) mod_proxy_fcgi: Fix proxy-fcgi-pathinfo=full
-     trunk patch: https://svn.apache.org/r1919547
-                  https://svn.apache.org/r1921238
-     2.4.x patch: https://patch-diff.githubusercontent.com/raw/apache/httpd/pull/489.diff
-     PR: https://github.com/apache/httpd/pull/489
-     +1: ylavic, covener
-
-  *) mod_http2: Fix failed request counting and keepalive timeout
-     trunk patch: https://svn.apache.org/r1921805
-     2.4.x patch: svn merge -c r1921805 ^/httpd/httpd/trunk .
-     +1: icing
+  *) mod_ssl: Set auth type to "ClientCert" after authentication
+     trunk patch: https://svn.apache.org/r1934210
+     2.4.x patch: svn merge -c 1934210 ^/httpd/httpd/trunk .
+     +1: michaelo
 
 PATCHES/ISSUES THAT ARE BEING WORKED
   [ New entries should be added at the START of the list ]

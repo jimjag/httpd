@@ -49,6 +49,7 @@ struct acme_problem_status_t {
 };
 
 static acme_problem_status_t Problems[] = {
+    { "acme:error:agreementRequired",            APR_EGENERAL, 1 },
     { "acme:error:badCSR",                       APR_EINVAL,   1 },
     { "acme:error:badNonce",                     APR_EAGAIN,   0 },
     { "acme:error:badSignatureAlgorithm",        APR_EINVAL,   1 },
@@ -61,7 +62,7 @@ static acme_problem_status_t Problems[] = {
     { "acme:error:serverInternal",               APR_EGENERAL, 0 },
     { "acme:error:unauthorized",                 APR_EACCES,   0 },
     { "acme:error:unsupportedIdentifier",        APR_BADARG,   1 },
-    { "acme:error:userActionRequired",           APR_EAGAIN,   0 },
+    { "acme:error:userActionRequired",           APR_EGENERAL, 1 },
     { "acme:error:badRevocationReason",          APR_EINVAL,   1 },
     { "acme:error:caa",                          APR_EGENERAL, 0 },
     { "acme:error:dns",                          APR_EGENERAL, 0 },
@@ -81,7 +82,7 @@ static apr_status_t problem_status_get(const char *type) {
     }
      
     for(i = 0; i < (sizeof(Problems)/sizeof(Problems[0])); ++i) {
-        if (!apr_strnatcasecmp(type, Problems[i].type)) {
+        if (!apr_cstr_casecmp(type, Problems[i].type)) {
             return Problems[i].rv;
         }
     }
@@ -100,7 +101,7 @@ int md_acme_problem_is_input_related(const char *problem) {
     }
 
     for(i = 0; i < (sizeof(Problems)/sizeof(Problems[0])); ++i) {
-        if (!apr_strnatcasecmp(problem, Problems[i].type)) {
+        if (!apr_cstr_casecmp(problem, Problems[i].type)) {
             return Problems[i].input_related;
         }
     }
@@ -182,22 +183,24 @@ static apr_status_t inspect_problem(md_acme_req_t *req, const md_http_response_t
             
             req->resp_json = problem;
             ptype = md_json_gets(problem, MD_KEY_TYPE, NULL); 
-            pdetail = md_json_gets(problem, MD_KEY_DETAIL, NULL);
-            req->rv = problem_status_get(ptype);
-            md_result_problem_set(req->result, req->rv, ptype, pdetail,
-                                  md_json_getj(problem, MD_KEY_SUBPROBLEMS, NULL));
-            
-            
-            
-            if (APR_STATUS_IS_EAGAIN(req->rv)) {
-                md_log_perror(MD_LOG_MARK, MD_LOG_DEBUG, req->rv, req->p,
-                              "acme reports %s: %s", ptype, pdetail);
+
+            if (ptype) {
+                req->rv = problem_status_get(ptype);
+                pdetail = md_json_gets(problem, MD_KEY_DETAIL, NULL);
+
+                md_result_problem_set(req->result, req->rv, ptype, pdetail,
+                                      md_json_getj(problem, MD_KEY_SUBPROBLEMS, NULL));
+
+                if (APR_STATUS_IS_EAGAIN(req->rv)) {
+                    md_log_perror(MD_LOG_MARK, MD_LOG_DEBUG, req->rv, req->p,
+                                  "acme reports %s: %s", ptype, pdetail);
+                }
+                else {
+                    md_log_perror(MD_LOG_MARK, MD_LOG_WARNING, req->rv, req->p,
+                                  "acme problem %s: %s", ptype, pdetail);
+                }
+                return req->rv;
             }
-            else {
-                md_log_perror(MD_LOG_MARK, MD_LOG_WARNING, req->rv, req->p,
-                              "acme problem %s: %s", ptype, pdetail);
-            }
-            return req->rv;
         }
     }
     
@@ -332,7 +335,7 @@ static apr_status_t acmev2_GET_as_POST_init(md_acme_req_t *req, void *baton)
     return md_acme_req_body_init(req, NULL);
 }
 
-static apr_status_t md_acme_req_send(md_acme_req_t *req)
+static apr_status_t md_acme_req_send(md_acme_req_t *req, int get_as_post)
 {
     apr_status_t rv;
     md_acme_t *acme = req->acme;
@@ -352,7 +355,7 @@ static apr_status_t md_acme_req_send(md_acme_req_t *req)
         if (APR_SUCCESS != rv) goto leave;
     }
     
-    if (!strcmp("GET", req->method) && !req->on_init && !req->req_json) {
+    if (get_as_post && !strcmp("GET", req->method) && !req->on_init && !req->req_json) {
         /* See <https://ietf-wg-acme.github.io/acme/draft-ietf-acme-acme.html#rfc.section.6.3>
          * and <https://mailarchive.ietf.org/arch/msg/acme/sotffSQ0OWV-qQJodLwWYWcEVKI>
          * and <https://community.letsencrypt.org/t/acme-v2-scheduled-deprecation-of-unauthenticated-resource-gets/74380>
@@ -420,7 +423,7 @@ static apr_status_t md_acme_req_send(md_acme_req_t *req)
     
     if (APR_EAGAIN == rv && req->max_retries > 0) {
         --req->max_retries;
-        rv = md_acme_req_send(req);
+        rv = md_acme_req_send(req, 1);
     }
     req = NULL;
 
@@ -449,14 +452,15 @@ apr_status_t md_acme_POST(md_acme_t *acme, const char *url,
     req->on_err = on_err;
     req->baton = baton;
     
-    return md_acme_req_send(req);
+    return md_acme_req_send(req, 1);
 }
 
 apr_status_t md_acme_GET(md_acme_t *acme, const char *url,
                          md_acme_req_init_cb *on_init,
                          md_acme_req_json_cb *on_json,
                          md_acme_req_res_cb *on_res,
-                          md_acme_req_err_cb *on_err,
+                         md_acme_req_err_cb *on_err,
+                         int get_as_post,
                          void *baton)
 {
     md_acme_req_t *req;
@@ -472,7 +476,7 @@ apr_status_t md_acme_GET(md_acme_t *acme, const char *url,
     req->on_err = on_err;
     req->baton = baton;
     
-    return md_acme_req_send(req);
+    return md_acme_req_send(req, get_as_post);
 }
 
 void md_acme_report_result(md_acme_t *acme, apr_status_t rv, struct md_result_t *result)
@@ -507,7 +511,7 @@ static apr_status_t on_got_json(md_acme_t *acme, apr_pool_t *p, const apr_table_
 }
 
 apr_status_t md_acme_get_json(struct md_json_t **pjson, md_acme_t *acme, 
-                              const char *url, apr_pool_t *p)
+                              const char *url, int get_as_post, apr_pool_t *p)
 {
     apr_status_t rv;
     json_ctx ctx;
@@ -515,7 +519,7 @@ apr_status_t md_acme_get_json(struct md_json_t **pjson, md_acme_t *acme,
     ctx.pool = p;
     ctx.json = NULL;
     
-    rv = md_acme_GET(acme, url, NULL, on_got_json, NULL, NULL, &ctx);
+    rv = md_acme_GET(acme, url, NULL, on_got_json, NULL, NULL, get_as_post, &ctx);
     *pjson = (APR_SUCCESS == rv)? ctx.json : NULL;
     return rv;
 }
@@ -664,6 +668,15 @@ typedef struct {
     md_result_t *result;
 } update_dir_ctx;
 
+static int collect_profiles(void *baton, const char* key, md_json_t *json)
+{
+    update_dir_ctx *ctx = baton;
+    (void)json;
+    APR_ARRAY_PUSH(ctx->acme->api.v2.profiles, const char *) =
+        apr_pstrdup(ctx->acme->p, key);
+    return 1;
+}
+
 static apr_status_t update_directory(const md_http_response_t *res, void *data)
 {
     md_http_request_t *req = res->req;
@@ -711,6 +724,7 @@ static apr_status_t update_directory(const md_http_response_t *res, void *data)
         acme->api.v2.revoke_cert = md_json_dups(acme->p, json, "revokeCert", NULL);
         acme->api.v2.key_change = md_json_dups(acme->p, json, "keyChange", NULL);
         acme->api.v2.new_nonce = md_json_dups(acme->p, json, "newNonce", NULL);
+        acme->api.v2.renewal_info = md_json_dups(acme->p, json, "renewalInfo", NULL);
         /* RFC 8555 only requires "directory" and "newNonce" resources.
          * mod_md uses "newAccount" and "newOrder" so check for them.
          * But mod_md does not use the "revokeCert" or "keyChange"
@@ -728,6 +742,20 @@ static apr_status_t update_directory(const md_http_response_t *res, void *data)
         acme->new_nonce_fn = acmev2_new_nonce;
         acme->req_init_fn = acmev2_req_init;
         acme->post_new_account_fn = acmev2_POST_new_account;
+
+        if (md_json_has_key(json, "meta", "profiles", NULL)) {
+            acme->api.v2.profiles = apr_array_make(acme->p, 5, sizeof(const char*));
+            md_json_iterkey(collect_profiles, data, json, "meta", "profiles", NULL);
+            md_log_perror(MD_LOG_MARK, MD_LOG_TRACE2, rv, req->pool,
+                          "found %d profiles in ACME directory meta",
+                          acme->api.v2.profiles->nelts);
+        }
+        else {
+            acme->api.v2.profiles = NULL;
+            md_log_perror(MD_LOG_MARK, MD_LOG_TRACE2, rv, req->pool,
+                          "no profiles in ACME directory meta");
+
+        }
     }
     else if ((s = md_json_dups(acme->p, json, "new-authz", NULL))) {
         acme->api.v1.new_authz = s;

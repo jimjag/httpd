@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 1909834 -->
+<!-- English Revision: 1933503 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -62,6 +62,14 @@ BrowserMatch MSIE !netscape
    part, les directives <directive
    module="mod_setenvif">SetEnvIf</directive> ne sont pas évaluées
    séparément dans la sous-requête.</p>
+
+   <p>Une expression rationnelle ne nécessite des guillemets que si elle
+      contient des espaces non protégées, auquel cas les guillemets simples ou
+      doubles sont équivalents. À la différence de <module>mod_rewrite</module>,
+      <module>mod_setenvif</module> supprime tous les autres anti-slashes lors
+      de l'interprétation de l'expression&nbsp;; ainsi, <code>\\</code> et
+      <code>\\\</code> doivent être notés <code>\\\</code> et
+      <code>\\\\\</code>, respectivement.</p>
 
 </summary>
 
@@ -154,8 +162,7 @@ attributs de la requête</description>
     se présenter sous l'une des trois formes suivantes :</p>
 
 <ol>
-<li>Un champ d'en-tête de requête HTTP (voir la <a
-    href="http://www.rfc-editor.org/rfc/rfc2616.txt">RFC2616</a> pour
+<li>Un champ d'en-tête de requête HTTP (voir la <rfc>2616</rfc> pour
     plus d'information à leur propos) ; par exemple : <code>Host</code>,
     <code>User-Agent</code>, <code>Referer</code>, ou
     <code>Accept-Language</code>. Il est possible d'utiliser une

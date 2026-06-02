@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.tr.xsl"?>
-<!-- English Revision: 1727648:1909834 (outdated) -->
+<!-- English Revision: 1727648:1933503 (outdated) -->
 <!-- =====================================================
  Translated by: Nilgün Belma Bugüner <nilgun belgeler.gen.tr>
    Reviewed by: Orhan Berent <berent belgeler.gen.tr>
@@ -186,7 +186,7 @@ SetEnvIfNoCase User-Agent Robot is_a_robot
         sayede önceki bir eşleşmenin sonucuna karşı yeni bir sınama yapma
         imkanı ortaya çıkar. Böyle bir sınama için sadece evvelce
         <code>SetEnvIf[NoCase]</code> yönergeleri ile yapılmış atamalardaki
-        ortam değişkenleri kullanılabilir.  ‘Evvelce’ derken, sunucu genelinde
+        ortam değişkenleri kullanılabilir.  'Evvelce' derken, sunucu genelinde
         veya bölüm içinde bu yönergeden önce yer alan
         <code>SetEnvIf[NoCase]</code> yönerge satırları kastedilmektedir.
         Ortam değişkenlerinin dikkate alınabilmesi için istek öznitelikleri

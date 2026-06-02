@@ -19,7 +19,7 @@ class TestStatic:
         env.check_acme()
         env.clear_store()
         MDConf(env).install()
-        assert env.apache_restart() == 0
+        assert env.apache_restart() == 0, f'{env.apachectl_stderr}'
 
     @pytest.fixture(autouse=True, scope='function')
     def _method_scope(self, env, request):
@@ -48,7 +48,7 @@ class TestStatic:
         conf.end_md()
         conf.add_vhost(domain)
         conf.install()
-        assert env.apache_restart() == 0
+        assert env.apache_restart() == 0, f'{env.apachectl_stderr}'
         
         # check if the domain uses it, it appears in our stats and renewal is off
         cert = env.get_cert(domain)
@@ -58,6 +58,11 @@ class TestStatic:
         assert 'cert' in stat
         assert stat['renew'] is True
         assert 'renewal' not in stat
+        env.httpd_error_log.ignore_recent(
+            matches = [
+                r'.*cert has no authority key id extension.*'
+            ]
+        )
 
     def test_md_730_002(self, env):
         # MD with static cert files, force driving
@@ -83,7 +88,7 @@ class TestStatic:
         conf.end_md()
         conf.add_vhost(domain)
         conf.install()
-        assert env.apache_restart() == 0
+        assert env.apache_restart() == 0, f'{env.apachectl_stderr}'
         # this should enforce a renewal
         stat = env.get_md_status(domain)
         assert stat['renew'] is True, stat
@@ -94,6 +99,11 @@ class TestStatic:
         assert 'cert' in stat['renewal']
         assert 'secp384r1' in stat['renewal']['cert']
         assert 'rsa' in stat['renewal']['cert']
+        env.httpd_error_log.ignore_recent(
+            matches = [
+                r'.*cert has no authority key id extension.*'
+            ]
+        )
 
     def test_md_730_003(self, env):
         # just configuring one file will not work

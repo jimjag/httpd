@@ -46,7 +46,21 @@
 #include "md_ocsp.h"
 
 #define MD_OCSP_ID_LENGTH   SHA_DIGEST_LENGTH
-   
+
+/* Max acceptable OCSP response size (DER-encoded responses are typically <2 KiB) */
+#define MD_OCSP_MAX_RESPONSE_LEN    (64 * 1024)
+/* Timeout for OCSP responses */
+#define MD_OCSP_DEFAULT_TIMEOUT apr_time_from_sec(60)
+/* Timeout for connecting to OCSP servers */
+#define MD_OCSP_CONNECT_TIMEOUT apr_time_from_sec(30)
+/*
+ * Below this throughput in bytes per second an OCSP response is regarded as
+ * stalled.
+ */
+#define MD_OCSP_STALLING_BYTES 10
+/* Maximum duration for a stalled period during an OCSP response */
+#define MD_OCSP_STALLING_TIME apr_time_from_sec(30)
+
 struct md_ocsp_reg_t {
     apr_pool_t *p;
     md_store_t *store;
@@ -190,6 +204,7 @@ static apr_status_t ostat_from_json(md_ocsp_cert_stat_t *pstat,
     md_timeperiod_t valid;
     apr_status_t rv = APR_ENOENT;
     
+    memset(&valid, 0, sizeof(valid));
     memset(resp_der, 0, sizeof(*resp_der));
     memset(resp_valid, 0, sizeof(*resp_valid));
     s = md_json_dups(p, json, MD_KEY_VALID, MD_KEY_FROM, NULL);
@@ -531,7 +546,7 @@ static const char *certid_summary(const OCSP_CERTID *certid, apr_pool_t *p)
         bn = ASN1_INTEGER_to_BN(aserial, NULL);
         s = BN_bn2hex(bn);
         serial = apr_pstrdup(p, s);
-        OPENSSL_free((void*)bn);
+        BN_free(bn);
         OPENSSL_free((void*)s);
     }
     return apr_psprintf(p, "certid[der=%s, issuer=%s, key=%s, serial=%s]",
@@ -900,6 +915,12 @@ void md_ocsp_renew(md_ocsp_reg_t *reg, apr_pool_t *p, apr_pool_t *ptemp, apr_tim
     
     rv = md_http_create(&http, ptemp, reg->user_agent, reg->proxy_url);
     if (APR_SUCCESS != rv) goto cleanup;
+
+    md_http_set_response_limit(http, MD_OCSP_MAX_RESPONSE_LEN);
+    md_http_set_timeout_default(http, MD_OCSP_DEFAULT_TIMEOUT);
+    md_http_set_connect_timeout_default(http, MD_OCSP_CONNECT_TIMEOUT);
+    md_http_set_stalling_default(http, MD_OCSP_STALLING_BYTES,
+                                 MD_OCSP_STALLING_TIME);
     
     rv = md_http_multi_perform(http, next_todo, &ctx);
 

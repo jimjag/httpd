@@ -297,7 +297,7 @@ struct data {
 #define ap_max(a,b) (((a)>(b))?(a):(b))
 #define ap_round_ms(a) ((apr_time_t)((a) + 500)/1000)
 #define ap_double_ms(a) ((double)(a)/1000.0)
-#define MAX_CONCURRENCY 20000
+#define MAX_CONCURRENCY 200000
 
 /* --------------------- GLOBALS ---------------------------- */
 
@@ -764,6 +764,7 @@ static void ssl_proceed_handshake(struct connection *c)
                              SSL_get_version(c->ssl),
                              SSL_CIPHER_get_name(ci),
                              pk_bits, sk_bits);
+                if (cert) X509_free(cert);
             }
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
             if (ssl_tmp_key == NULL) {

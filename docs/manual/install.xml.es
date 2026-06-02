@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='UTF-8' ?>
 <!DOCTYPE manualpage SYSTEM "./style/manualpage.dtd">
 <?xml-stylesheet type="text/xsl" href="./style/manual.es.xsl"?>
-<!-- English Revision: 1760550:1869920 (outdated) -->
+<!-- English Revision: 1760550:1934684 (outdated) -->
 <!-- Spanish Translation by: Luis Gil de Bernabé --> 
 <!-- Reviewed by: Sergio Ramos -->
 
@@ -431,7 +431,7 @@ funciona</title>
     en la documentación. Mientras lamentablemente, esta situación no es probable que cambie a corto plazo.</p>
 
     <p>Una <a
-    href="http://wiki.apache.org/httpd/DistrosDefaultLayout">descripción
+    href="https://cwiki.apache.org/confluence/display/httpd/DistrosDefaultLayout">descripción
     de estas distribuciones de terceros </a> está siendo actualizada en el servidor de la WIKI de HTTP
     Server, y debería reflejar el actual estado de éstas distribuciones de terceros. 
     Sin embargo, tendrá que familiarizarse con los procedimientos de gestión

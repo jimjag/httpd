@@ -44,7 +44,7 @@
 
 #if H2_USE_WEBSOCKETS
 
-#include "apr_encode.h" /* H2_USE_WEBSOCKETS is conditional on APR 1.6+ */
+#include "apr_encode.h" /* H2_USE_WEBSOCKETS is conditional on APR 1.7+ */
 
 static ap_filter_rec_t *c2_ws_out_filter_handle;
 
@@ -239,7 +239,7 @@ static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
                  * or in the request processings implementation of WebSockets */
                 ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c2, APLOGNO(10463)
                               "h2_c2(%s-%d): websocket CONNECT, 101 response "
-                              "with 'Sec-WebSocket-Accept: %s' but expected %s",
+                              "without 'Sec-WebSocket-Accept: %s' but expected %s",
                               conn_ctx->id, conn_ctx->stream_id, hd,
                               ws_ctx->ws_accept_base64);
             }

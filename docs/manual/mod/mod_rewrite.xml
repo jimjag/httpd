@@ -37,20 +37,26 @@ URLs on the fly</description>
       the fly. By default, <module>mod_rewrite</module> maps a URL to a filesystem
       path. However, it can also be used to redirect one URL to another URL, or
       to invoke an internal proxy fetch.</p>
+
       <p><module>mod_rewrite</module> provides a flexible and powerful way to
       manipulate URLs using an unlimited number of rules. Each rule can have an
-      unlimited number of attached rule conditions, to allow you to rewrite URL
-      based on server variables, environment variables, HTTP headers, or time
-      stamps.</p>
-      <p><module>mod_rewrite</module> operates on the full URL path, including the
-      path-info section. A rewrite rule can be invoked in
-      <code>httpd.conf</code> or in <code>.htaccess</code>. The path generated
-      by a rewrite rule can include a query string, or can lead to internal
+      unlimited number of attached rule conditions, to allow you to rewrite URLs
+      based on <a href="#rewritecond">server variables</a> (including HTTP
+      headers, connection details, and timestamps), environment variables,
+      or other request properties.</p>
+
+      <p><module>mod_rewrite</module> can operate on the full URL-path, or any
+      portion of it, including the PATH_INFO or QUERY_STRING.</p>
+
+      <p>A rewrite rule
+      can be invoked in the server configuration files, or in <glossary
+      ref="perdirectory">per-directory</glossary> context. The substitution
+      string of a rewrite rule can include a query string, and a rule can lead to internal
       sub-processing, external request redirection, or internal proxy
       throughput.</p>
 
       <p>Further details, discussion, and examples, are provided in the
-      <a href="../rewrite/">detailed mod_rewrite documentation</a>.</p>
+      detailed <a href="../rewrite/">Guide to mod_rewrite</a>.</p>
 </summary>
 
 <section id="logging"><title>Logging</title>
@@ -68,25 +74,29 @@ URLs on the fly</description>
       level higher than <code>trace2</code> only for debugging!
     </note>
 
-    <example><title>Example</title>
-    <highlight language="config">
+        <example><title>Example</title>
+            <highlight language="config">
 LogLevel alert rewrite:trace3
-    </highlight>
-    </example>
+            </highlight>
+        </example>
 
     <note><title>RewriteLog</title>
       <p>Those familiar with earlier versions of
       <module>mod_rewrite</module> will no doubt be looking for the
       <code>RewriteLog</code> and <code>RewriteLogLevel</code>
-      directives. This functionality has been completely replaced by the
-      new per-module logging configuration mentioned above.
+      directives. Since the release of httpd 2.4, these directives
+      have been replaced with the per-module logging configuration
+      provided by <directive module="core">LogLevel</directive>.
       </p>
 
       <p>To get just the <module>mod_rewrite</module>-specific log
       messages, pipe the log file through grep:</p>
-    <example>
-    tail -f error_log|fgrep '[rewrite:'
-    </example>
+
+        <example>
+            <highlight language="sh">
+tail -f error_log|fgrep '[rewrite:'
+            </highlight>
+        </example>
     </note>
 
 </section>
@@ -304,8 +314,8 @@ LogLevel alert rewrite:trace3
 </syntax>
 <contextlist><context>server config</context><context>virtual host</context>
 </contextlist>
-<compatibility>The 3rd parameter, MapTypeOptions, in only available from Apache
-2.4.29 and later</compatibility>
+<compatibility>The 3rd parameter, MapTypeOptions, is only available in Apache httpd
+2.4.29 and later.</compatibility>
 
 <usage>
       <p>The <directive>RewriteMap</directive> directive defines a
@@ -404,42 +414,26 @@ RewriteRule "^/ex/(.*)" "${examplemap:$1}"
 
 <usage>
       <p>The <directive>RewriteBase</directive> directive specifies the
-      URL prefix to be used for per-directory (htaccess)
+      URL prefix to be used for
+      <glossary ref="perdirectory">per-directory</glossary>
       <directive module="mod_rewrite">RewriteRule</directive> directives that
       substitute a relative path.</p>
       <p> This directive is <em>required</em> when you use a relative path
-      in a substitution in per-directory (htaccess) context unless any 
+      in a substitution in <glossary ref="perdirectory">per-directory</glossary> context unless any
       of the following conditions are true:</p>
       <ul>
           <li> The original request, and the substitution, are underneath the
                <directive module="core">DocumentRoot</directive>
                (as opposed to reachable by other means, such as
                <directive module="mod_alias">Alias</directive>).</li>
-          <li> The <em>filesystem</em> path to the directory containing the
-               <directive module="mod_rewrite">RewriteRule</directive>,
-               suffixed by the relative
-               substitution is also valid as a URL path on the server
-               (this is rare).</li>
+          <li> The directory-path for which the RewriteRule applies, 
+               suffixed by the relative substitution, is also valid
+               as a URL-path on the server (this is rare).</li>
           <li> In Apache HTTP Server 2.4.16 and later, this directive may be
                 omitted when the request is mapped via
                 <directive module="mod_alias">Alias</directive>
                 or <module>mod_userdir</module>.</li>
       </ul>
-
-<p> In the example below, <directive>RewriteBase</directive> is necessary
-    to avoid rewriting to http://example.com/opt/myapp-1.2.3/welcome.html
-    since the resource was not relative to the document root.  This
-    misconfiguration would normally cause the server to look for an "opt"
-    directory under the document root.</p>
-<highlight language="config">
-DocumentRoot "/var/www/example.com"
-AliasMatch "^/myapp" "/opt/myapp-1.2.3"
-&lt;Directory "/opt/myapp-1.2.3"&gt;
-    RewriteEngine On
-    RewriteBase "/myapp/"
-    RewriteRule "^index\.html$"  "welcome.html"
-&lt;/Directory&gt;
-</highlight>
 
 </usage>
 
@@ -450,7 +444,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
 <description>Defines a condition under which rewriting will take place
 </description>
 <syntax> RewriteCond
-      <em>TestString</em> <em>CondPattern</em> [<em>flags</em>]</syntax>
+      <em>TestString</em> [!]<em>CondPattern</em> [<em>flags</em>]</syntax>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>FileInfo</override>
@@ -462,6 +456,10 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
       directive. The following rule is then only used if both
       the current state of the URI matches its pattern, <strong
       >and</strong> if these conditions are met.</p>
+
+      <p>If the <em>CondPattern</em> is prefixed with a <code>!</code> the
+      condition is determined to be true only if the the
+      <em>CondPattern</em> does not match.</p>
 
       <p><em>TestString</em> is a string which can contain the
       following expanded constructs in addition to plain text:</p>
@@ -475,6 +473,10 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
           <code>RewriteRule</code> which is subject to the current
           set of <code>RewriteCond</code> conditions. $0 provides
           access to the whole string matched by that pattern.
+
+          <note>Backreferences are only defined if the pattern
+          matches. Thus, if the pattern is prefixed with
+          <code>!</code>, no backreferences are ever defined.</note>
         </li>
         <li>
           <strong>RewriteCond backreferences</strong>: These are
@@ -484,6 +486,10 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
           <code>RewriteCond</code> in the current set
           of conditions. %0 provides access to the whole string matched by
           that pattern.
+
+          <note>Backreferences are only defined if the pattern
+          matches. Thus, if the pattern is prefixed with
+          <code>!</code>, no backreferences are ever defined.</note>
         </li>
         <li>
           <strong>RewriteMap expansions</strong>: These are
@@ -493,7 +499,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
           RewriteMap</a> for more details.
         </li>
         <li>
-          <strong>Server-Variables</strong>: These are variables of
+          <strong>Server variables</strong>: These are variables of
           the form
             <strong><code>%{</code> <em>NAME_OF_VARIABLE</em>
             <code>}</code></strong>
@@ -584,8 +590,10 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
                 correspond to the similarly named HTTP
                 MIME-headers, C variables of the Apache HTTP Server or
                 <code>struct tm</code> fields of the Unix system.
-                Most are documented <a href="../expr.html#vars">here</a>
-                or elsewhere in the Manual or in the CGI specification.</p>
+                Most are documented in the 
+                <a href="../expr.html#vars">Expressions doc</a>, in the
+                <a href="../env.html">Environment Variables doc</a>,
+                or the CGI specification (<rfc>3875</rfc>).</p>
 
                 <p>SERVER_NAME and SERVER_PORT depend on the values of
                 <directive module="core">UseCanonicalName</directive> and
@@ -658,6 +666,12 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
                   <code>REQUEST_URI</code> 
                   has already been %-decoded, to re-encode it pass it through
                   the "escape" <a href="#mapfunc">mapping-function</a>.
+                  Note that this server variable differs from the CGI
+                  environment variable of the same name: in a CGI context,
+                  <code>REQUEST_URI</code> contains the full original URI
+                  from the request line, including the query string. See
+                  the <directive module="core">CGIVar</directive>
+                  directive for details.
                   </dd>
 
                   <dt><code>THE_REQUEST</code></dt>
@@ -752,7 +766,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
         <em>after</em> the URL translation phase (during which
         <module>mod_rewrite</module> operates).</p>
         <p>On the other hand, because <module>mod_rewrite</module> implements
-        its per-directory context (<code>.htaccess</code> file) via
+        its <glossary ref="perdirectory">per-directory</glossary> context via
         the Fixup phase of the API and because the authorization
         phases come <em>before</em> this phase, you just can use
         <code>%{REMOTE_USER}</code> in that context.</p></li>
@@ -771,7 +785,7 @@ AliasMatch "^/myapp" "/opt/myapp-1.2.3"
       <em>CondPattern</em>.</p>
 
       <p><em>CondPattern</em> is usually a
-      <em>perl compatible regular expression</em>, but there is
+      <glossary ref="regex">regular expression</glossary>, but there is
       additional syntax available to perform other useful tests against
       the <em>Teststring</em>:</p>
 
@@ -1071,7 +1085,7 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
 <name>RewriteRule</name>
 <description>Defines rules for the rewriting engine</description>
 <syntax>RewriteRule
-      <em>Pattern</em> <em>Substitution</em> [<em>flags</em>]</syntax>
+      [!]<em>Pattern</em> <em>Substitution</em> [<em>flags</em>]</syntax>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>FileInfo</override>
@@ -1084,9 +1098,13 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
       in which they will be applied at run-time.</p>
 
       <p><a id="patterns" name="patterns"><em>Pattern</em></a> is
-      a perl compatible <a id="regexp" name="regexp">regular
-      expression</a>.  What this pattern is compared against varies depending
+      a <a id="regexp" name="regexp"><glossary ref="regex">regular
+      expression</glossary></a>.  What this pattern is compared against varies depending
       on where the <directive>RewriteRule</directive> directive is defined. </p>
+
+      <p>If the pattern is prefixed with a <code>!</code> the
+      substitution will be performed only if the the
+      <em>pattern</em> does not match.</p>
 
 <note><title><a id="what_is_matched" name="what_is_matched">What is matched?</a></title>
 
@@ -1096,17 +1114,18 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
       URL after the hostname and port, and before the query string (e.g. "/app1/index.html").
       This is the (%-decoded) <a href="directive-dict.html#Syntax">URL-path</a>.</p></li>
 
-      <li><p>In per-directory context (<directive module="core">Directory</directive> and .htaccess),
+      <li><p>In <glossary ref="perdirectory">per-directory context</glossary>
+      (<directive module="core">Directory</directive> and .htaccess),
       the <em>Pattern</em> is matched against only a partial path, for example a request
       of "/app1/index.html" may result in comparison against "app1/index.html" 
-      or "index.html" depending on where the <directive>RewriteRule</directive> is 
-      defined.</p>
+      or "index.html" depending on the directory-path for which the
+      <directive>RewriteRule</directive> applies.</p>
 
-      <p>The directory path where the rule is defined is stripped from the currently mapped
+      <p>The directory-path to which the rule applies is stripped from the currently mapped
       filesystem path before comparison (up to and including a trailing slash). 
-      The net result of this per-directory prefix stripping is that rules in
+      The net result of this <glossary ref="perdirectory">per-directory</glossary> prefix stripping is that rules in
       this context only match against the portion of the currently mapped filesystem path 
-      "below" where the rule is defined.</p>
+      "below" the directory-path to which the rule applies.</p>
 
       <p>Directives such as <directive module="core"
       >DocumentRoot</directive> and <directive module="mod_alias">Alias</directive>, or even the 
@@ -1122,7 +1141,7 @@ RewriteRule  "^/$"                 "/homepage.std.html"     [L]
 </ul>
 </note>
 
-<note><title>Per-directory Rewrites</title>
+<note><title><glossary ref="perdirectory">Per-directory</glossary> Rewrites</title>
 <ul>
 <li>The rewrite engine may be used in <a
 href="../howto/htaccess.html">.htaccess</a> files and in <directive type="section"
@@ -1130,23 +1149,27 @@ module="core">Directory</directive> sections, with some additional
 complexity.</li>
 
 <li>To enable the rewrite engine in this context, you need to set
-"<code>RewriteEngine On</code>" <strong>and</strong>
-"<code>Options FollowSymLinks</code>" must be enabled. If your
-administrator has disabled override of <code>FollowSymLinks</code> for
-a user's directory, then you cannot use the rewrite engine. This
-restriction is required for security reasons.</li>
+<code>RewriteEngine On</code> <strong>and</strong>
+at least one of the <code>FollowSymLinks</code> or
+<code>SymLinksIfOwnerMatch</code>
+<directive module="core">Options</directive> must be enabled. Note
+that these options cannot be set in a distributed configuration file
+(<code>.htaccess</code>) unless
+<directive module="core">AllowOverride</directive> permits it
+in the server configuration.</li>
 
 <li>See the <directive module="mod_rewrite">RewriteBase</directive>
 directive for more information regarding what prefix will be added back to
 relative substitutions.</li>
 
-<li> If you wish to match against the full URL-path in a per-directory
-(htaccess) RewriteRule, use the <code>%{REQUEST_URI}</code> variable in
+<li> If you wish to match against the full URL-path in a 
+<glossary ref="perdirectory">per-directory</glossary> context
+RewriteRule, use the <code>%{REQUEST_URI}</code> variable in
 a <directive module="mod_rewrite">RewriteCond</directive>.</li>
 
 <li>The removed prefix always ends with a slash, meaning the matching occurs against a string which
 <em>never</em> has a leading slash.  Therefore, a <em>Pattern</em> with <code>^/</code> never
-matches in per-directory context.</li>
+matches in <glossary ref="perdirectory">per-directory</glossary> context.</li>
 
 <li>Although rewrite rules are syntactically permitted in <directive
 type="section" module="core">Location</directive> and <directive
@@ -1190,21 +1213,11 @@ sections and consider both set of statements, rather than only the last one.</li
       the <a href="../rewrite/intro.html#regex">mod_rewrite
       Introduction</a>.</p>
 
-      <p>In <module>mod_rewrite</module>, the NOT character
-      ('<code>!</code>') is also available as a possible pattern
-      prefix. This enables you to negate a pattern; to say, for instance:
-      ``<em>if the current URL does <strong>NOT</strong> match this
-      pattern</em>''. This can be used for exceptional cases, where
-      it is easier to match the negative pattern, or as a last
-      default rule.</p>
-
-<note><title>Note</title>
-When using the NOT character to negate a pattern, you cannot include
-grouped wildcard parts in that pattern. This is because, when the
-pattern does NOT match (ie, the negation matches), there are no
-contents for the groups. Thus, if negated patterns are used, you
-cannot use <code>$N</code> in the substitution string!
-</note>
+      <p>For information on <glossary ref="regex">regular
+      expressions</glossary>, including the use of the
+      <code>!</code> prefix to negate a pattern, see the
+      <a href="../rewrite/intro.html#regex">Regular Expressions</a>
+      section of the mod_rewrite introduction.</p>
 
       <p>The <a id="rhs" name="rhs"><em>Substitution</em></a> of a
       rewrite rule is the string that replaces the original URL-path that
@@ -1216,26 +1229,23 @@ cannot use <code>$N</code> in the substitution string!
         <dt>file-system path</dt>
 
         <dd>Designates the location on the file-system of the resource
-        to be delivered to the client.  Substitutions are only
-        treated as a file-system path when the rule is configured in
-        server (virtualhost) context and the first component of the
-        path in the substitution exists in the file-system</dd>
+        to be delivered to the client. A substitution beginning with
+        <code>/</code> is treated as a file-system path only in
+        server or virtual host context, and only when the first
+        component of the path exists in the file-system. In
+        <glossary ref="perdirectory">per-directory context</glossary>,
+        this guessing does not occur.</dd>
 
         <dt>URL-path</dt>
 
         <dd>A <directive
         module="core">DocumentRoot</directive>-relative path to the
-        resource to be served. Note that <module>mod_rewrite</module>
-        tries to guess whether you have specified a file-system path
-        or a URL-path by checking to see if the first segment of the
-        path exists at the root of the file-system. For example, if
-        you specify a <em>Substitution</em> string of
-        <code>/www/file.html</code>, then this will be treated as a
-        URL-path <em>unless</em> a directory named <code>www</code>
-        exists at the root or your file-system (or, in the case of
-        using rewrites in a <code>.htaccess</code> file, relative to
-        your document root), in which case it will
-        be treated as a file-system path. If you wish other
+        resource to be served. In server or virtual host context,
+        if the first segment of the path exists at the root of the
+        file-system, the substitution is treated as a file-system
+        path instead.  For example, <code>/www/file.html</code> is
+        a URL-path unless a directory named <code>www</code> exists
+        at the root of the file-system. If you wish other
         URL-mapping directives (such as <directive
         module="mod_alias">Alias</directive>) to be applied to the
         resulting URL-path, use the <code>[PT]</code> flag as
@@ -1263,6 +1273,28 @@ cannot use <code>$N</code> in the substitution string!
 
       </dl>
 
+      <note><title>How path substitutions are interpreted</title>
+      <p>Whether a path substitution is treated as a file-system path
+      or a URL-path depends on the context and whether it begins with
+      a slash:</p>
+      <ul>
+        <li><strong>Starts with <code>/</code>, server/vhost context:</strong>
+        Treated as a file-system path if the first path component exists
+        on disk; otherwise treated as a URL-path.</li>
+        <li><strong>Starts with <code>/</code>, <glossary ref="perdirectory">per-directory</glossary> context:</strong>
+        Always treated as a URL-path. No file-system guessing occurs.</li>
+        <li><strong>Does not start with <code>/</code> (relative),
+        server/vhost context:</strong> Treated as a URL-path relative
+        to the current request URI.</li>
+        <li><strong>Does not start with <code>/</code> (relative),
+        <glossary ref="perdirectory">per-directory</glossary> context:</strong> Treated as a URL-path relative
+        to the directory-path for which the <directive
+        module="core">Directory</directive> or <code>.htaccess</code>
+        applies. See <directive>RewriteBase</directive> for controlling
+        the prefix added to relative substitutions.</li>
+      </ul>
+      </note>
+
       <p>In addition to plain text, the <em>Substitution</em> string can include</p>
 
       <ol>
@@ -1272,7 +1304,7 @@ cannot use <code>$N</code> in the substitution string!
         <li>back-references (<code>%N</code>) to the last matched
         RewriteCond pattern</li>
 
-        <li>server-variables as in rule condition test-strings
+        <li>server variables as in rule condition test-strings
         (<code>%{VARNAME}</code>)</li>
 
         <li><a href="#mapfunc">mapping-function</a> calls
@@ -1281,9 +1313,16 @@ cannot use <code>$N</code> in the substitution string!
 
       <p>Back-references are identifiers of the form
       <code>$</code><strong>N</strong>
-      (<strong>N</strong>=0..9), which will be replaced
-      by the contents of the <strong>N</strong>th group of the
-      matched <em>Pattern</em>. The server-variables are the same
+      (<strong>N</strong>=0..9). <code>$0</code> refers to the
+      entire string matched by the <em>Pattern</em>, while
+      <code>$1</code>..<code>$9</code> refer to the corresponding
+      captured groups from the matched <em>Pattern</em>.
+      Similarly, back-references
+      <code>%0</code>..<code>%9</code> refer to the most recently
+      matched
+      <directive module="mod_rewrite">RewriteCond</directive>
+      <em>CondPattern</em>: <code>%0</code> is the entire match and
+      <code>%1</code>..<code>%9</code> are the captured groups. The server variables are the same
       as for the <em>TestString</em> of a
       <directive module="mod_rewrite">RewriteCond</directive>
       directive. The mapping-functions come from the
@@ -1330,7 +1369,7 @@ cannot use <code>$N</code> in the substitution string!
     <tr>
         <td>B</td>
         <td>Escape non-alphanumeric characters in backreferences <em>before</em>
-        applying the transformation. For similar escaping of server-variables, see
+        applying the transformation. For similar escaping of server variables, see
         the "escape" <a href="#mapfunc">mapping-function</a>.<em><a
         href="../rewrite/flags.html#flag_b">details ...</a></em></td>
     </tr>
@@ -1373,7 +1412,7 @@ cannot use <code>$N</code> in the substitution string!
         <td>END</td>
         <td>Stop the rewriting process immediately and don't apply any
         more rules. Also prevents further execution of rewrite rules
-        in per-directory and .htaccess context. (Available in 2.3.9 and later)
+        in <glossary ref="perdirectory">per-directory</glossary> context. (Available in 2.3.9 and later)
         <em><a href="../rewrite/flags.html#flag_end">details ...</a></em></td>
     </tr>
     <tr>
@@ -1402,8 +1441,7 @@ cannot use <code>$N</code> in the substitution string!
     <tr>
         <td>last|L</td>
         <td>Stop the rewriting process immediately and don't apply any
-        more rules. Especially note caveats for per-directory and
-        .htaccess context (see also the END flag). <em><a
+        more rules. Especially note caveats for <glossary ref="perdirectory">per-directory</glossary> context (see also the END flag). <em><a
         href="../rewrite/flags.html#flag_l">details ...</a></em></td>
     </tr>
     <tr>
@@ -1520,11 +1558,11 @@ directive.</p>
 </note>
 
 
-     <p>Here are all possible substitution combinations and their
+     <p>Here are the possible combinations of substitution string
+      form, context, and the [R] and [P] flags, and their
       meanings:</p>
 
-      <p><strong>Inside per-server configuration
-      (<code>httpd.conf</code>)<br />
+      <p><strong>Outside <glossary ref="perdirectory">per-directory</glossary> configuration<br />
        for request ``<code>GET
       /somepath/pathinfo</code>'':</strong><br />
       </p>
@@ -1596,9 +1634,9 @@ directive.</p>
 </tr>
 </table>
 
-      <p><strong>Inside per-directory configuration for
+      <p><strong>Inside <glossary ref="perdirectory">per-directory</glossary> configuration for
       <code>/somepath</code><br />
-       (<code>/physical/path/to/somepath/.htaccess</code>, with
+       (e.g., <code>.htaccess</code> or <code>&lt;Directory&gt;</code>, with
       <code>RewriteBase "/somepath"</code>)<br />
        for request ``<code>GET
       /somepath/localpath/pathinfo</code>'':</strong><br />
