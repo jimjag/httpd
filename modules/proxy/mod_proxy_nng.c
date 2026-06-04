@@ -105,9 +105,10 @@ typedef enum {
 
 /* SUB-side per-backend state, keyed by url in ctx->seen. */
 typedef struct {
-    apr_time_t last_seen;  /* updated on every ANNOUNCE for this url */
-    int        added;      /* worker exists in the balancer (add dedup) */
-    int        evicted;    /* WE set DISABLED on timeout (guards flip churn) */
+    apr_time_t last_seen;    /* updated on every ANNOUNCE for this url */
+    apr_time_t last_attempt; /* last add attempt (throttles retry when full) */
+    int        added;        /* worker exists in the balancer (add dedup) */
+    int        evicted;      /* WE set DISABLED on timeout (guards flip churn) */
 } nng_member_t;
 
 typedef struct {
@@ -139,6 +140,15 @@ typedef struct {
 /* SipHash-2-4 output is 8 bytes -> 16 hex chars (+ NUL). */
 #define NNG_MAC_HEXLEN  (APR_SIPHASH_DSIZE * 2)
 #define NNG_MAXSKEW_DEFAULT  30   /* seconds, floor; raised to 2x interval */
+
+/* When an add fails (e.g. the balancer is full), don't retry on every
+ * announcement -- back off this long between attempts for a given url. */
+#define NNG_RETRY_BACKOFF    apr_time_from_sec(60)
+
+/* Cap on tracked backend urls, to bound memory against an unauthenticated
+ * channel announcing unboundedly many distinct urls.  Once reached, unknown
+ * urls are dropped (rate-limited log) rather than tracked/added. */
+#define NNG_MAX_MEMBERS      256
 
 /* Process-wide watchdog handle, like mod_proxy_hcheck's static watchdog. */
 static ap_watchdog_t *nng_watchdog;
@@ -519,24 +529,45 @@ static apr_status_t nng_set_worker_disabled(nng_ctx_t *ctx, apr_pool_t *pool,
 }
 
 /*
- * Add (and enable) a freshly-announced backend as a member of the configured
- * balancer, reusing balancer_manage().  Two calls: add (the worker is created
- * DISABLED by default), then clear the DISABLED flag so it serves traffic.
- * Records an nng_member_t in ctx->seen so repeated announcements are idempotent
- * (and so the eviction sweep can track last-seen time).
+ * Emit a rate-limited (~1/s) message about dropped/failed announcements, so a
+ * full balancer or a flood of bad urls can't flood the error log.  Shares the
+ * counter/timer with the Phase-4 rejection logging.
  */
-static void nng_add_member(nng_ctx_t *ctx, apr_pool_t *pool, const char *url,
-                           apr_time_t now)
+static void nng_log_throttled(nng_ctx_t *ctx, apr_time_t now, const char *what)
+{
+    ctx->reject_count++;
+    if (ctx->last_reject_log == 0
+        || now - ctx->last_reject_log >= apr_time_from_sec(1)) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING, 0, ctx->s,
+                     "mod_proxy_nng: dropped %" APR_UINT64_T_FMT
+                     " announcement(s) (last: %s)", ctx->reject_count, what);
+        ctx->reject_count = 0;
+        ctx->last_reject_log = now;
+    }
+}
+
+/*
+ * Attempt to add (and enable) url as a member of the configured balancer,
+ * reusing balancer_manage().  Two calls: add (the worker is created DISABLED by
+ * default), then clear the DISABLED flag so it serves traffic.  Updates the
+ * caller-owned member entry m: m->added is set on success.  Returns APR_SUCCESS
+ * on success.  A failure here (e.g. the balancer is full) is expected and
+ * handled by the caller via backoff, not retried every announcement.
+ */
+static apr_status_t nng_try_add(nng_ctx_t *ctx, apr_pool_t *pool,
+                                const char *url, nng_member_t *m,
+                                apr_time_t now)
 {
     server_rec *s = ctx->s;
     apr_pool_t *subp;
     request_rec *r;
     apr_table_t *params;
-    nng_member_t *m;
     apr_status_t rv;
 
+    m->last_attempt = now;
+
     if (!nng_have_manage_fn(ctx)) {
-        return;
+        return APR_EGENERAL;
     }
 
     apr_pool_create(&subp, pool);
@@ -550,10 +581,11 @@ static void nng_add_member(nng_ctx_t *ctx, apr_pool_t *pool, const char *url,
     rv = ctx->manage_fn(r, params);
     apr_pool_destroy(subp);
     if (rv != APR_SUCCESS) {
-        ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                     "mod_proxy_nng: failed to add worker %s to balancer://%s",
-                     url, ctx->balancer_name);
-        return;
+        /* Most likely the balancer has no free slots (grow it via ProxySet
+         * growth / BalancerGrowth).  Throttled log; retried only after the
+         * backoff window, not on every announcement. */
+        nng_log_throttled(ctx, now, "balancer add failed (full?)");
+        return rv;
     }
 
     /* Step 2: enable it (clear the DISABLED flag) so it serves traffic. */
@@ -565,22 +597,20 @@ static void nng_add_member(nng_ctx_t *ctx, apr_pool_t *pool, const char *url,
         /* fall through: still a member, just disabled */
     }
 
-    /* Record membership + last-seen (now, never 0, so the sweep won't
-     * immediately evict a just-added member). */
-    m = apr_pcalloc(ctx->p, sizeof(*m));
-    m->last_seen = now;
     m->added = 1;
     m->evicted = 0;
-    apr_hash_set(ctx->seen, apr_pstrdup(ctx->p, url), APR_HASH_KEY_STRING, m);
-
     ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
                  "mod_proxy_nng: added backend %s to balancer://%s",
                  url, ctx->balancer_name);
+    return APR_SUCCESS;
 }
 
 /*
- * Handle one announced url: add it if new; otherwise refresh last_seen and, if
- * we had evicted it on timeout, re-enable it (clear DISABLED).
+ * Handle one announced url.  Tracks every url in ctx->seen (capped) so that:
+ *   - a successful member is deduplicated and its last_seen refreshed;
+ *   - a previously-evicted member is re-enabled when it announces again;
+ *   - an add that failed (e.g. balancer full) is retried only after a backoff,
+ *     not on every announcement.
  */
 static void nng_handle_announce(nng_ctx_t *ctx, apr_pool_t *pool,
                                 const char *url, apr_time_t now)
@@ -588,11 +618,29 @@ static void nng_handle_announce(nng_ctx_t *ctx, apr_pool_t *pool,
     nng_member_t *m = apr_hash_get(ctx->seen, url, APR_HASH_KEY_STRING);
 
     if (!m) {
-        nng_add_member(ctx, pool, url, now);
+        /* Bound memory: don't track unboundedly many distinct urls (a concern
+         * on an unauthenticated channel). */
+        if (apr_hash_count(ctx->seen) >= NNG_MAX_MEMBERS) {
+            nng_log_throttled(ctx, now, "member table full");
+            return;
+        }
+        m = apr_pcalloc(ctx->p, sizeof(*m));
+        m->last_seen = now;
+        apr_hash_set(ctx->seen, apr_pstrdup(ctx->p, url), APR_HASH_KEY_STRING,
+                     m);
+        nng_try_add(ctx, pool, url, m, now);
         return;
     }
 
     m->last_seen = now;
+
+    if (!m->added) {
+        /* A prior add failed; retry, but only after the backoff window. */
+        if (now - m->last_attempt >= NNG_RETRY_BACKOFF) {
+            nng_try_add(ctx, pool, url, m, now);
+        }
+        return;
+    }
 
     if (m->evicted) {
         if (nng_set_worker_disabled(ctx, pool, url, 0) == APR_SUCCESS) {
@@ -850,19 +898,7 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
                 if (ctx->has_secret) {
                     const char *reason = "?";
                     if (!nng_verify(ctx, buf, apr_time_now(), &reason)) {
-                        apr_time_t tnow = apr_time_now();
-                        ctx->reject_count++;
-                        if (ctx->last_reject_log == 0
-                            || tnow - ctx->last_reject_log
-                                   >= apr_time_from_sec(1)) {
-                            ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
-                                         "mod_proxy_nng: dropped %"
-                                         APR_UINT64_T_FMT " unauthenticated/"
-                                         "invalid announcement(s) (last: %s)",
-                                         ctx->reject_count, reason);
-                            ctx->reject_count = 0;
-                            ctx->last_reject_log = tnow;
-                        }
+                        nng_log_throttled(ctx, apr_time_now(), reason);
                         nng_free(buf, sz);
                         continue;
                     }

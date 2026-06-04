@@ -78,5 +78,40 @@
         ProxyNngInterval  1
     </VirtualHost>
 
+    #
+    # Capacity / slot-exhaustion scenario (separate, second SUB + balancer).
+    # balancer://cap has room for exactly ONE runtime member (growth=1).  Two
+    # backends announce distinct URLs to it: one wins the slot, the other can
+    # never be added.  The failed add must be retried on a long backoff, NOT on
+    # every announcement -- so there must be no per-interval add-failure storm.
+    #
+    Define NNG_CAP_PORT @NextAvailablePort@
+
+    # Second SUB lives on its own vhost so it has a distinct listen port.
+    <VirtualHost proxy_nng_cap>
+        ProxyNngSubscribe tcp://127.0.0.1:${NNG_CAP_PORT}
+        ProxyNngBalancer  cap
+        ProxyNngSecret    nng-test-shared-secret
+        ProxyNngTimeout   0
+        <Proxy balancer://cap>
+            ProxySet growth=1
+        </Proxy>
+        ProxyPass /cap balancer://cap
+    </VirtualHost>
+
+    # Two backends competing for the single cap slot (announce every 1s).
+    <VirtualHost proxy_nng_cap1>
+        ProxyNngPublish   tcp://127.0.0.1:${NNG_CAP_PORT}
+        ProxyNngAdvertise http://127.0.0.2:18081
+        ProxyNngSecret    nng-test-shared-secret
+        ProxyNngInterval  1
+    </VirtualHost>
+    <VirtualHost proxy_nng_cap2>
+        ProxyNngPublish   tcp://127.0.0.1:${NNG_CAP_PORT}
+        ProxyNngAdvertise http://127.0.0.2:18082
+        ProxyNngSecret    nng-test-shared-secret
+        ProxyNngInterval  1
+    </VirtualHost>
+
 </IfModule>
 </IfModule>

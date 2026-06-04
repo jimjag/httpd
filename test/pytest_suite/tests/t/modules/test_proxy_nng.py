@@ -75,11 +75,15 @@ def test_proxy_nng(http):
         "announcements should carry a url= token")
 
     # Phase 2: the backend was added exactly once (dedup), no add-failure spam.
-    added = [ln for ln in loglines if "added backend" in ln]
+    # Qualify by balancer://nng so the capacity-test balancer (below) doesn't
+    # perturb these counts.
+    added = [ln for ln in loglines
+             if "added backend" in ln and "balancer://nng" in ln]
     assert len(added) == 1, (
         f"backend should be added exactly once; saw {len(added)}: {added}")
-    assert not [ln for ln in loglines if "failed to add worker" in ln], (
-        "unexpected add-failure log lines")
+    assert not [ln for ln in loglines if "failed to add worker" in ln
+                and "balancer://nng:" in ln], (
+        "unexpected add-failure log lines for balancer://nng")
 
     # Phase 3: the member was evicted (stopped announcing within the timeout)
     # and later re-enabled (started announcing again).
@@ -94,5 +98,21 @@ def test_proxy_nng(http):
                 and "added backend" in ln], (
         "decoy backend with wrong secret must never be added")
     assert [ln for ln in loglines
-            if "unauthenticated/invalid announcement" in ln], (
+            if "dropped" in ln and "mac mismatch" in ln], (
         "proxy should log dropping the wrong-secret announcements")
+
+    # Slot exhaustion: balancer://cap has room for one member but two backends
+    # announce to it. Exactly one must be added; the other can never fit.
+    cap_added = [ln for ln in loglines
+                 if "added backend" in ln and "balancer://cap" in ln]
+    assert len(cap_added) == 1, (
+        f"exactly one backend should fit balancer://cap; saw: {cap_added}")
+
+    # The key regression guard: the un-addable backend must NOT trigger an
+    # add attempt (and its log) on every announcement. Both backends announce
+    # once per second over ~16s, so a per-interval retry storm would be >10
+    # failure logs; the backoff must keep it tiny.
+    cap_fail = [ln for ln in loglines if "balancer add failed" in ln]
+    assert len(cap_fail) <= 3, (
+        f"failed add must back off, not retry every announcement; "
+        f"saw {len(cap_fail)} failure logs: {cap_fail}")

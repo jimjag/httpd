@@ -566,6 +566,56 @@ Status: **Phase 4 complete.** Channel authenticated against forgery, tampering,
 and replay with an in-tree MAC; transport encryption (nng TLS) remains an
 optional future layer.
 
+## 13. Security / correctness audit (post Phase 1-4)
+
+A full review of mod_proxy_nng.c against the reused balancer/watchdog code, plus
+an independent adversarial pass. Conclusions:
+
+### Confirmed safe (no change needed)
+- **No per-tick memory leak.** The watchdog passes its `temp_pool` to the
+  RUNNING/STARTING callbacks and `apr_pool_clear`s it every tick
+  (`mod_watchdog.c:194`). The PUB `apr_psprintf`, the sweep's `apr_hash_first`,
+  and the per-call subpools in the add/disable helpers all allocate into that
+  pool (or short-lived subpools they destroy), so nothing accumulates per tick.
+- **Slot exhaustion is safe at the balancer layer.**
+  `balancer_process_balancer_worker` checks `!nworker && num_free_slots()`
+  *before* `ap_proxy_define_worker`, so a full balancer just returns
+  HTTP_BAD_REQUEST with no allocation/partial-add.
+- **No buffer issues in the parser.** `buf[sz-1]='\0'` is guarded by `sz>0`, and
+  is set before any `strstr`/`strlen`/`strncmp`, so all scans are bounded even on
+  a non-NUL-terminated foreign payload; `url[512]` truncates safely; the MAC
+  compare is constant-time over a fixed length; verify runs before the URL is
+  parsed/acted on; the reject path `continue`s past the trailing `nng_free`
+  (no double free).
+
+### Fixed (the issue you flagged + a related one)
+- **Slot-exhaustion retry/log storm (was: real).** Previously, when the balancer
+  was full the failed add recorded *nothing* in `ctx->seen`, so every subsequent
+  announcement (every interval, per un-addable backend, forever) re-ran the full
+  `balancer_manage` add path — global-mutex cycle + an ERROR log each time.
+  Attacker-amplifiable when unauthenticated. **Fix:** track every url in
+  `ctx->seen` up front (with `last_attempt`); a failed add now backs off
+  (`NNG_RETRY_BACKOFF`, 60s) instead of retrying every announcement, and the
+  failure log is rate-limited (~1/s) and shared with the Phase-4 reject log via
+  `nng_log_throttled`.
+- **Unbounded `ctx->seen` growth.** Distinct advertised urls accumulated forever
+  in the process-lifetime pool (worst case: an unauthenticated flood of distinct
+  urls). **Fix:** cap the table at `NNG_MAX_MEMBERS` (256); beyond that, unknown
+  urls are dropped with a throttled log rather than tracked.
+
+### Regression coverage
+The pytest now includes a capacity scenario: a second SUB with a `growth=1`
+`balancer://cap` and two backends advertising distinct urls. Asserts exactly one
+is added and that the un-addable one produces no per-interval failure storm
+(<= 3 failure logs over ~16s of 1s-interval announcements, vs >10 without the
+backoff). The existing add/evict/re-enable and Phase-4 reject assertions still
+pass (now balancer-qualified so the two balancers don't cross-perturb counts).
+
+Status: **audited; the flagged slot-exhaustion case is handled and regression
+tested.** No memory-safety bugs, double-frees, or exploitable parsing defects
+found. Module remains default-off in the build and interacts with other modules
+only through the existing `balancer_manage` optional fn.
+
 ## 8. References
 - nng PUB/SUB getting started: https://nanomsg.org/gettingstarted/nng/pubsub.html
 - nng_pub(7): https://nng.nanomsg.org/man/v1.10.0/nng_pub.7.html
