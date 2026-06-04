@@ -1,0 +1,93 @@
+mod_proxy_nng
+
+Self-registering reverse-proxy balancer membership: backend servers announce
+themselves to a front-end proxy over an nng (nanomsg-next-generation) PUB/SUB
+channel, and the proxy adds, enables, and evicts them as live balancer members.
+See docs/manual/mod/mod_proxy_nng.xml for the user-facing directive reference;
+this file describes the architecture.
+
+
+Dependencies:
+  Requires mod_watchdog and mod_proxy_balancer. Links against libnng
+  (--with-nng, --enable-proxy-nng). Authentication uses SipHash from APR-util;
+  no OpenSSL dependency.
+
+
+Roles (note the inversion):
+  An nng PUB socket is send-only, so the data direction -- backend to proxy --
+  determines the roles:
+
+    Backend  = PUBlisher  (ProxyNngPublish): dials the proxy, advertises its own
+               routable URL (ProxyNngAdvertise), publishes periodically.
+    Proxy    = SUBscriber (ProxyNngSubscribe): listens on a stable address,
+               receives announcements, and manages balancer://<name>
+               (ProxyNngBalancer).
+
+  The proxy is the fixed rendezvous; backends dial in. One proxy SUB serves many
+  backend PUBs.
+
+
+Where it runs:
+  All background work runs in a single mod_watchdog SINGLETON callback -- exactly
+  one child process owns the socket (so only one process binds the listen port
+  and performs membership changes). The watchdog fires every ~100ms:
+
+    STARTING  open the socket; SUB listens, PUB dials (non-blocking, auto-retry).
+    RUNNING   PUB: publish a throttled announcement (ProxyNngInterval).
+              SUB: drain the recv queue, then run a throttled (~1s) eviction
+                   sweep.
+    STOPPING  close the socket.
+
+  Because this relies on a singleton watchdog child, it is inactive under the
+  prefork MPM.
+
+
+Adding/removing members (reuses the balancer-manager path):
+  Runtime worker *removal* does not exist in httpd, so membership is managed
+  entirely as status-flag changes via mod_proxy_balancer's exported
+  balancer_manage() optional function -- the same code the balancer-manager web
+  UI calls. The SUB synthesizes a minimal request_rec (no real client request
+  exists in the watchdog thread; see nng_make_fake_request) and calls:
+
+    add     b=<name> b_nwrkr=<url> b_wyes=1     (worker created, disabled)
+    enable  b=<name> w=<url> w_status_D=0       (cleared -> serves traffic)
+    evict   b=<name> w=<url> w_status_D=1       (disabled -> out of rotation)
+
+  Adds bump the balancer's shm "updated" timestamp, so every other child picks
+  up the new worker through the normal ap_proxy_sync_balancer() path -- the
+  change made in the singleton propagates fleet-wide. The target balancer must
+  have spare slots (ProxySet growth / BalancerGrowth).
+
+  Per-backend state (last-seen time, added/evicted flags) is kept in a hash in
+  the singleton's own pool -- no shared memory is needed, since the singleton is
+  the only process that adds or evicts. A re-announcement after eviction
+  re-enables the worker; the flags make these transitions idempotent.
+
+
+Message format:
+  Plain ASCII, space-separated key=value tokens:
+
+    ANNOUNCE url=http://host:port host=<h> pid=<n> seq=<n> ts=<unix-sec> mac=<hex>
+
+  url= is the routable backend origin the proxy adds as a BalancerMember. ts=
+  and mac= are present only when a shared secret is configured (see below).
+  host=/pid=/seq= are informational.
+
+
+Authentication (ProxyNngSecret, optional but recommended):
+  Without a secret the channel is unauthenticated: anyone who can reach the SUB
+  port could announce a URL and hijack client traffic (the proxy logs a warning
+  at startup in this case).
+
+  With ProxyNngSecret set identically on the proxy and all backends, each
+  announcement is signed with a SipHash-2-4 MAC over the message prefix (the key
+  is derived from the passphrase via apr_md5, as in mod_session_crypto). The SUB
+  recomputes the MAC (constant-time compare) and rejects anything that does not
+  match -- before the URL is parsed or acted on. A signed timestamp (ts=) plus a
+  freshness window (ProxyNngMaxSkew) provides replay protection; this assumes
+  proxy and backend clocks are roughly synchronized (NTP). seq= is NOT used for
+  replay (it resets when a backend restarts).
+
+  Announcements are authenticated, not encrypted -- the payload is operational
+  metadata, not secret. For transport confidentiality, build nng with TLS and
+  use a tls+tcp:// URL.
