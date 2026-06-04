@@ -1,0 +1,349 @@
+<?xml version="1.0"?>
+<!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
+<?xml-stylesheet type="text/xsl" href="../style/manual.en.xsl"?>
+<!-- $LastChangedRevision$ -->
+
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one or more
+ contributor license agreements.  See the NOTICE file distributed with
+ this work for additional information regarding copyright ownership.
+ The ASF licenses this file to You under the Apache License, Version 2.0
+ (the "License"); you may not use this file except in compliance with
+ the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+<modulesynopsis metafile="mod_proxy_nng.xml.meta">
+
+<name>mod_proxy_nng</name>
+<description>Dynamic Balancer membership where backends announce themselves
+to the reverse proxy over an <a href="https://nng.nanomsg.org/">nng</a>
+PUB/SUB channel</description>
+<status>Extension</status>
+<sourcefile>mod_proxy_nng.c</sourcefile>
+<identifier>proxy_nng_module</identifier>
+<compatibility>Available in Apache 2.5 and later</compatibility>
+
+<summary>
+    <p>This module lets backend servers <em>announce themselves</em> to a
+    front-end reverse proxy, which then adds each announcing backend as a live
+    member (worker) of a <module>mod_proxy_balancer</module> balancer. When a
+    backend stops announcing, the proxy takes it out of rotation. This provides
+    self-registering, self-healing balancer membership without editing the proxy
+    configuration or driving the <code>balancer-manager</code> by hand.</p>
+
+    <p>Communication uses the PUB/SUB pattern of the
+    <a href="https://nng.nanomsg.org/">nng</a> (nanomsg-next-generation)
+    library. Because an nng PUB socket is send-only, the direction of the data
+    (backend to proxy) makes each <strong>backend the publisher</strong> and
+    the <strong>reverse proxy the subscriber</strong>:</p>
+
+    <ul>
+      <li>The reverse proxy opens a SUB socket and <em>listens</em> on a
+          stable address (<directive>ProxyNngSubscribe</directive>).</li>
+      <li>Each backend opens a PUB socket and <em>dials</em> the proxy on
+          startup (<directive>ProxyNngPublish</directive>), then periodically
+          publishes a short announcement advertising its own routable URL
+          (<directive>ProxyNngAdvertise</directive>).</li>
+    </ul>
+
+    <p>On the proxy, <directive>ProxyNngBalancer</directive> names the balancer
+    that announced backends are added to. Membership changes are applied using
+    the same internal mechanism as the <code>balancer-manager</code> web
+    interface, so a backend added this way behaves exactly like a statically
+    configured or manually added
+    <directive module="mod_proxy">BalancerMember</directive>, and is visible and
+    editable in the <code>balancer-manager</code>.</p>
+
+    <p>This module <em>requires</em> the service of
+    <module>mod_watchdog</module> and <module>mod_proxy_balancer</module>. The
+    background work (listening, publishing, adding and evicting members) runs in
+    a single <module>mod_watchdog</module> child process, so it is not available
+    under the <code>prefork</code> MPM behaviour where that singleton cannot
+    run.</p>
+
+<note type="warning"><title>Authentication</title>
+    <p>Any host that can reach the proxy's SUB port could otherwise announce an
+    arbitrary backend URL and cause the proxy to send client traffic to it. Set
+    <directive>ProxyNngSecret</directive> to the same value on the proxy and on
+    every backend so that announcements are authenticated with a keyed
+    message-authentication code (MAC) and a timestamp. When a secret is
+    configured the proxy drops any announcement that is not validly signed and
+    recent. If no secret is configured the channel is <strong>unauthenticated</strong>
+    and the proxy logs a warning at startup.</p>
+</note>
+
+<note><title>Confidentiality</title>
+    <p>Announcements are authenticated but not encrypted; the payload is
+    operational metadata (backend URLs), not secret data. If transport
+    confidentiality is required, use an nng build with TLS support and a
+    <code>tls+tcp://</code> URL for
+    <directive>ProxyNngSubscribe</directive>/<directive>ProxyNngPublish</directive>.</p>
+</note>
+
+</summary>
+<seealso><module>mod_proxy</module></seealso>
+<seealso><module>mod_proxy_balancer</module></seealso>
+<seealso><module>mod_proxy_hcheck</module></seealso>
+<seealso><module>mod_watchdog</module></seealso>
+
+<section id="examples">
+    <title>Usage example</title>
+
+    <p>The following pair of configurations sets up a self-registering balancer.
+    The backends require no knowledge of each other and the proxy needs no
+    pre-declared <directive module="mod_proxy">BalancerMember</directive>
+    entries &mdash; only an empty balancer with room to grow.</p>
+
+    <p>On the <strong>reverse proxy</strong>:</p>
+    <highlight language="config">
+# Listen for backend announcements on the cluster network interface.
+ProxyNngSubscribe tls+tcp://0.0.0.0:5555
+ProxyNngSecret    "a-long-random-shared-cluster-secret"
+ProxyNngBalancer  cluster
+
+# A backend is dropped from rotation if it does not announce for 30 seconds.
+ProxyNngTimeout   30
+
+# An initially-empty balancer with spare slots for the dynamic members.
+&lt;Proxy balancer://cluster&gt;
+  ProxySet growth=16
+&lt;/Proxy&gt;
+ProxyPass        "/" "balancer://cluster/"
+ProxyPassReverse "/" "balancer://cluster/"
+    </highlight>
+
+    <p>On each <strong>backend</strong> server:</p>
+    <highlight language="config">
+# Dial the proxy and announce this backend's routable origin every 10 seconds.
+ProxyNngPublish   tls+tcp://proxy.example.com:5555
+ProxyNngAdvertise http://10.0.0.5:8080
+ProxyNngSecret    "a-long-random-shared-cluster-secret"
+ProxyNngInterval  10
+    </highlight>
+
+    <p>When a backend starts it dials the proxy and begins publishing. The proxy
+    verifies each announcement against the shared secret, adds
+    <code>http://10.0.0.5:8080</code> as a member of
+    <code>balancer://cluster</code>, and enables it. If that backend later stops
+    publishing for longer than <directive>ProxyNngTimeout</directive>, the proxy
+    disables the member (taking it out of rotation); a subsequent announcement
+    re-enables it.</p>
+
+    <note>
+    <p>A backend added at runtime occupies one of the balancer's growth slots
+    for the lifetime of the server process; it is disabled rather than removed
+    when it stops announcing, matching the behaviour of the
+    <code>balancer-manager</code> (which can add, but not remove, workers at
+    runtime). Size <code>growth</code> for the maximum number of backends you
+    expect to register.</p>
+    </note>
+
+</section>
+
+<directivesynopsis>
+<name>ProxyNngSubscribe</name>
+<description>Address on which the reverse proxy listens for backend
+announcements</description>
+<syntax>ProxyNngSubscribe <em>url</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngSubscribe</directive> directive marks a server as
+    the announcement <em>subscriber</em> (the reverse proxy). It opens an nng SUB
+    socket and listens on the given nng <em>url</em>, e.g.
+    <code>tcp://0.0.0.0:5555</code> for a plain TCP rendezvous, or
+    <code>tls+tcp://0.0.0.0:5555</code> when the nng library was built with TLS
+    support.</p>
+
+    <p>Backends connect to this address via
+    <directive>ProxyNngPublish</directive>. The directive should be used
+    together with <directive>ProxyNngBalancer</directive>; without it,
+    announcements are received and logged but no members are added.
+    <directive>ProxyNngSubscribe</directive> and
+    <directive>ProxyNngPublish</directive> are mutually exclusive on the same
+    server.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngPublish</name>
+<description>Address of the reverse proxy that a backend dials to announce
+itself</description>
+<syntax>ProxyNngPublish <em>url</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngPublish</directive> directive marks a server as an
+    announcement <em>publisher</em> (a backend). It opens an nng PUB socket and
+    dials the proxy's <directive>ProxyNngSubscribe</directive> address given by
+    <em>url</em>, e.g. <code>tcp://proxy.example.com:5555</code>. The connection
+    is established in the background and retried automatically, so a backend may
+    be started before the proxy is available.</p>
+
+    <p>Use <directive>ProxyNngAdvertise</directive> to specify the routable URL
+    the backend announces. <directive>ProxyNngPublish</directive> and
+    <directive>ProxyNngSubscribe</directive> are mutually exclusive on the same
+    server.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngAdvertise</name>
+<description>The routable URL a backend announces to the reverse proxy</description>
+<syntax>ProxyNngAdvertise <em>url</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngAdvertise</directive> directive sets the backend's
+    own reachable origin (for example <code>http://10.0.0.5:8080</code>) that the
+    proxy will add as a <directive module="mod_proxy">BalancerMember</directive>.
+    It must be a full <code>scheme://host[:port]</code> URL that the proxy can
+    reach &mdash; not the local listen address &mdash; and is validated when the
+    configuration is parsed.</p>
+
+    <p>This directive is used on a backend, alongside
+    <directive>ProxyNngPublish</directive>. If it is omitted, the backend still
+    publishes a heartbeat but advertises no URL, so the proxy logs the
+    announcement without adding a member.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngBalancer</name>
+<description>Name of the balancer that announced backends are added to</description>
+<syntax>ProxyNngBalancer <em>name</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngBalancer</directive> directive names the balancer,
+    on the reverse proxy, into which announced backends are inserted as members.
+    Give the bare balancer name (for example <code>cluster</code> for
+    <code>balancer://cluster</code>); a leading <code>balancer://</code> is
+    accepted and stripped.</p>
+
+    <p>The named balancer must exist and have spare capacity. Declare it with a
+    <directive module="mod_proxy">&lt;Proxy&gt;</directive> block and a
+    <code>growth</code> setting (or rely on
+    <directive module="mod_proxy">BalancerGrowth</directive>) so there are free
+    slots for the dynamically added members. This directive is used together
+    with <directive>ProxyNngSubscribe</directive>.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngInterval</name>
+<description>How often a backend publishes its announcement</description>
+<syntax>ProxyNngInterval <em>interval</em></syntax>
+<default>ProxyNngInterval 5</default>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngInterval</directive> directive sets how frequently
+    a backend (a <directive>ProxyNngPublish</directive> server) publishes its
+    announcement. It uses the
+    <a href="directive-dict.html#Syntax">time-interval</a> directive syntax and
+    defaults to seconds; the default is 5 seconds.</p>
+
+    <p>The interval must be meaningfully smaller than the proxy's
+    <directive>ProxyNngTimeout</directive>, so that the occasional lost or
+    delayed announcement does not cause a healthy backend to be evicted.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngTimeout</name>
+<description>How long the proxy waits, without an announcement, before a backend
+is taken out of rotation</description>
+<syntax>ProxyNngTimeout <em>interval</em></syntax>
+<default>ProxyNngTimeout 0</default>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngTimeout</directive> directive sets how long the
+    reverse proxy will wait for an announcement from a backend before disabling
+    that backend's balancer member (taking it out of rotation). A later
+    announcement from the same backend re-enables it. It uses the
+    <a href="directive-dict.html#Syntax">time-interval</a> directive syntax and
+    defaults to seconds.</p>
+
+    <p>The default, <code>0</code>, disables eviction entirely: backends are
+    added when they announce but are never automatically removed. Set this to a
+    small multiple of the backends' <directive>ProxyNngInterval</directive> to
+    enable self-healing membership. This directive is used on the proxy.</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngSecret</name>
+<description>Pre-shared secret used to authenticate announcements</description>
+<syntax>ProxyNngSecret <em>secret</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngSecret</directive> directive sets a pre-shared
+    cluster secret. It must be configured with the <em>same</em> value on the
+    reverse proxy and on every backend. The publisher signs each announcement
+    with a keyed message-authentication code (a SipHash MAC) derived from the
+    secret, together with a timestamp; the subscriber recomputes the MAC and
+    verifies the timestamp, dropping any announcement that is forged, tampered
+    with, or stale (a replay).</p>
+
+    <p>If <directive>ProxyNngSecret</directive> is set on the proxy, every
+    announcement must carry a valid, recent MAC or it is rejected. If the
+    secrets on the proxy and a backend differ, that backend's announcements are
+    silently rejected (and logged), which appears as the backend never joining
+    the balancer.</p>
+
+    <p>If no secret is configured the channel is unauthenticated and the proxy
+    emits a warning when it starts listening. Because the secret is stored in
+    the configuration file, restrict that file's permissions as you would for a
+    private key.</p>
+
+    <note><title>Clock synchronisation</title>
+    <p>The timestamp-based replay protection compares the announcement's time
+    against the proxy's clock, so the proxy and backends must have reasonably
+    synchronised clocks (for example via NTP). See
+    <directive>ProxyNngMaxSkew</directive>.</p>
+    </note>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>ProxyNngMaxSkew</name>
+<description>Maximum allowed age of a signed announcement</description>
+<syntax>ProxyNngMaxSkew <em>interval</em></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>The <directive>ProxyNngMaxSkew</directive> directive sets the anti-replay
+    window used when <directive>ProxyNngSecret</directive> is configured: the
+    proxy rejects any announcement whose signed timestamp differs from the
+    current time by more than this amount, in either direction. It uses the
+    <a href="directive-dict.html#Syntax">time-interval</a> directive syntax and
+    defaults to seconds.</p>
+
+    <p>If unset, the default is the greater of 30 seconds and twice the
+    announcement <directive>ProxyNngInterval</directive>. A larger window
+    tolerates greater clock skew between hosts; a smaller window bounds how long
+    a captured announcement could be replayed. This directive is used on the
+    proxy.</p>
+</usage>
+</directivesynopsis>
+
+</modulesynopsis>
