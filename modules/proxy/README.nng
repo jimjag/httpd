@@ -67,11 +67,11 @@ Adding/removing members (reuses the balancer-manager path):
 Message format:
   Plain ASCII, space-separated key=value tokens:
 
-    ANNOUNCE url=http://host:port host=<h> pid=<n> seq=<n> ts=<unix-sec> mac=<hex>
+    ANNOUNCE url=http://host:port host=<h> pid=<n> seq=<n> ts=<usec> mac=<hex>
 
   url= is the routable backend origin the proxy adds as a BalancerMember. ts=
-  and mac= are present only when a shared secret is configured (see below).
-  host=/pid=/seq= are informational.
+  (microseconds since the epoch) and mac= are present only when a shared secret
+  is configured (see below). host=/pid=/seq= are informational.
 
 
 Authentication (ProxyNngSecret, optional but recommended):
@@ -83,10 +83,16 @@ Authentication (ProxyNngSecret, optional but recommended):
   announcement is signed with a SipHash-2-4 MAC over the message prefix (the key
   is derived from the passphrase via apr_md5, as in mod_session_crypto). The SUB
   recomputes the MAC (constant-time compare) and rejects anything that does not
-  match -- before the URL is parsed or acted on. A signed timestamp (ts=) plus a
-  freshness window (ProxyNngMaxSkew) provides replay protection; this assumes
-  proxy and backend clocks are roughly synchronized (NTP). seq= is NOT used for
-  replay (it resets when a backend restarts).
+  match -- before the URL is parsed or acted on. Replay protection has two
+  parts, both keyed on the signed ts= (microseconds): (1) a freshness window
+  (ProxyNngMaxSkew) rejects messages whose timestamp is too far from now, which
+  assumes proxy and backend clocks are roughly synchronized (NTP); (2) a per-url
+  high-water mark rejects any ts= that does not strictly exceed the last one
+  accepted for that url, so a byte-identical replay (same ts, same MAC) -- e.g.
+  replaying a dead backend's last announcement to keep it from being evicted --
+  is dropped even within the freshness window. Microsecond granularity ensures
+  genuine sub-second announcements always advance. seq= is NOT used for replay
+  (it resets when a backend restarts); the wall-clock ts= does not.
 
   Announcements are authenticated, not encrypted -- the payload is operational
   metadata, not secret. For transport confidentiality, build nng with TLS and

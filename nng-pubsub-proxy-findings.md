@@ -616,6 +616,35 @@ tested.** No memory-safety bugs, double-frees, or exploitable parsing defects
 found. Module remains default-off in the build and interacts with other modules
 only through the existing `balancer_manage` optional fn.
 
+## 14. Replay hardening (per-URL monotonic timestamp)
+
+Follow-up to the audit's documented in-window replay gap. The MAC already binds
+the URL (an attacker cannot swap in a different backend), so the only replay
+value is re-asserting an *authorized* backend's liveness -- e.g. replaying a
+dead backend's last announcement to defeat Phase-3 eviction. Hashing the URL
+would not help: the URL is what the attacker wants to re-assert, and it is
+already integrity-protected. Detecting replay fundamentally needs a per-message
+element that changes each time; a challenge-response nonce is impossible on a
+one-directional PUB->SUB channel, and `seq` resets on restart -- so a
+wall-clock timestamp is the right mechanism.
+
+Change: `ts=` now carries **microseconds** (raw `apr_time_now()`), not seconds.
+`nng_verify` returns the parsed ts; `nng_handle_announce` keeps a per-URL
+`last_ts` high-water mark in `nng_member_t` and rejects (throttled log
+"replayed/reordered ts") any authenticated announcement whose ts does not
+strictly exceed it. Two layers now: the freshness window
+(`ProxyNngMaxSkew`) AND strict monotonicity. Microsecond granularity means
+genuine sub-second announcements always advance, so legitimate traffic is never
+false-rejected (the PUB throttles to >= ProxyNngInterval between sends anyway).
+
+Also corrected the manual's `ProxyNngMaxSkew` default text to match the code
+(flat 30s; the plan's "max(30, 2x interval)" was never implemented).
+
+Verified: integration test asserts zero "replayed/reordered ts" rejections for
+the legitimate ~1s-interval backends (no over-rejection), and a standalone logic
+proof confirms an exact replay (same ts) and an older captured ts are both
+rejected while strictly-increasing genuine announcements are accepted.
+
 ## 8. References
 - nng PUB/SUB getting started: https://nanomsg.org/gettingstarted/nng/pubsub.html
 - nng_pub(7): https://nng.nanomsg.org/man/v1.10.0/nng_pub.7.html

@@ -116,3 +116,11 @@ def test_proxy_nng(http):
     assert len(cap_fail) <= 3, (
         f"failed add must back off, not retry every announcement; "
         f"saw {len(cap_fail)} failure logs: {cap_fail}")
+
+    # Anti-replay: the per-url monotonic ts check must NOT false-reject the
+    # legitimate backends, which announce ~once/second. Because ts is in
+    # microseconds it strictly increases between announcements, so no genuine
+    # announcement should be logged as a replay. (A real replay can't be
+    # injected from this harness; this guards against over-rejection.)
+    assert not [ln for ln in loglines if "replayed/reordered ts" in ln], (
+        "legitimate sub-second announcements must not be seen as replays")

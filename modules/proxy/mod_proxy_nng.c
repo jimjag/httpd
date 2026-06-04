@@ -107,6 +107,7 @@ typedef enum {
 typedef struct {
     apr_time_t last_seen;    /* updated on every ANNOUNCE for this url */
     apr_time_t last_attempt; /* last add attempt (throttles retry when full) */
+    apr_int64_t last_ts;     /* highest signed ts= accepted (replay guard) */
     int        added;        /* worker exists in the balancer (add dedup) */
     int        evicted;      /* WE set DISABLED on timeout (guards flip churn) */
 } nng_member_t;
@@ -611,9 +612,12 @@ static apr_status_t nng_try_add(nng_ctx_t *ctx, apr_pool_t *pool,
  *   - a previously-evicted member is re-enabled when it announces again;
  *   - an add that failed (e.g. balancer full) is retried only after a backoff,
  *     not on every announcement.
+ * msg_ts is the signed timestamp (microseconds) from the verified message, or 0
+ * when the channel is unauthenticated.
  */
 static void nng_handle_announce(nng_ctx_t *ctx, apr_pool_t *pool,
-                                const char *url, apr_time_t now)
+                                const char *url, apr_time_t now,
+                                apr_int64_t msg_ts)
 {
     nng_member_t *m = apr_hash_get(ctx->seen, url, APR_HASH_KEY_STRING);
 
@@ -626,12 +630,23 @@ static void nng_handle_announce(nng_ctx_t *ctx, apr_pool_t *pool,
         }
         m = apr_pcalloc(ctx->p, sizeof(*m));
         m->last_seen = now;
+        m->last_ts = msg_ts;
         apr_hash_set(ctx->seen, apr_pstrdup(ctx->p, url), APR_HASH_KEY_STRING,
                      m);
         nng_try_add(ctx, pool, url, m, now);
         return;
     }
 
+    /* Anti-replay (2): on an authenticated channel, each url's signed ts must
+     * strictly increase.  A replayed (byte-identical) announcement carries a ts
+     * we've already accepted, so reject it -- this closes the in-window replay
+     * the freshness check alone allows (e.g. replaying a dead backend's last
+     * announcement to keep it from being evicted). */
+    if (ctx->has_secret && msg_ts <= m->last_ts) {
+        nng_log_throttled(ctx, now, "replayed/reordered ts");
+        return;
+    }
+    m->last_ts = msg_ts;
     m->last_seen = now;
 
     if (!m->added) {
@@ -761,11 +776,12 @@ static const char *nng_sign(nng_ctx_t *ctx, apr_pool_t *pool, const char *base)
 /*
  * SUB: verify a received, NUL-terminated message.  Returns 1 if the MAC matches
  * the pre-shared key AND the ts= timestamp is within ctx->max_skew of now.
- * Only called when ctx->has_secret.  Constant-time MAC compare via
- * apr_crypto_equals.  reason (out) is set to a short cause string on failure.
+ * Only called when ctx->has_secret.  Constant-time MAC compare.  On success the
+ * parsed ts= (microseconds since the epoch) is written to *ts_out for the
+ * caller's per-url monotonic replay check.  reason (out) is set on failure.
  */
 static int nng_verify(nng_ctx_t *ctx, const char *msg, apr_time_t now,
-                      const char **reason)
+                      apr_int64_t *ts_out, const char **reason)
 {
     const char *macp = NULL, *p, *tsp;
     char expected[NNG_MAC_HEXLEN + 1];
@@ -793,7 +809,10 @@ static int nng_verify(nng_ctx_t *ctx, const char *msg, apr_time_t now,
         return 0;
     }
 
-    /* Anti-replay: ts= must be present and within the freshness window. */
+    /* Anti-replay (1): ts= must be present and within the freshness window.
+     * ts is in microseconds (raw apr_time_now()) so that announcements made
+     * less than a second apart still have strictly-increasing timestamps for
+     * the caller's per-url check. */
     tsp = NULL;
     for (p = msg; (p = strstr(p, "ts=")) != NULL && p < macp; p += 3) {
         /* token-start: beginning of message or preceded by a space */
@@ -807,15 +826,16 @@ static int nng_verify(nng_ctx_t *ctx, const char *msg, apr_time_t now,
     }
     ts = apr_atoi64(tsp + 3);
     skew = ctx->max_skew > 0 ? ctx->max_skew : NNG_MAXSKEW_DEFAULT;
-    delta = (apr_int64_t)apr_time_sec(now) - ts;
+    delta = (apr_int64_t)now - ts;
     if (delta < 0) {
         delta = -delta;
     }
-    if (delta > skew) {
+    if (delta > apr_time_from_sec(skew)) {
         *reason = "stale timestamp";
         return 0;
     }
 
+    *ts_out = ts;
     return 1;
 }
 
@@ -839,20 +859,23 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
             /* Carry the routable URL so the proxy can add us as a member.
              * Without ProxyNngAdvertise, fall back to the Phase-1 payload
              * (channel proof only; the SUB just logs it).  ts= is the signing
-             * timestamp (Phase 4 anti-replay); it is harmless when unsigned. */
+             * timestamp in microseconds (Phase 4 anti-replay): the proxy checks
+             * both a freshness window and that it strictly increases per url, so
+             * a byte-identical replay (same ts) is rejected.  Harmless when
+             * unsigned. */
             if (ctx->advertise_url) {
                 base = apr_psprintf(pool,
                             "ANNOUNCE url=%s host=%s pid=%" APR_PID_T_FMT
                             " seq=%" APR_UINT64_T_FMT " ts=%" APR_INT64_T_FMT,
                             ctx->advertise_url, host, getpid(), ctx->seq++,
-                            (apr_int64_t)apr_time_sec(now));
+                            (apr_int64_t)now);
             }
             else {
                 base = apr_psprintf(pool,
                             "ANNOUNCE host=%s pid=%" APR_PID_T_FMT
                             " seq=%" APR_UINT64_T_FMT " ts=%" APR_INT64_T_FMT,
                             host, getpid(), ctx->seq++,
-                            (apr_int64_t)apr_time_sec(now));
+                            (apr_int64_t)now);
             }
             /* Phase 4: append a keyed MAC when a shared secret is configured. */
             msg = nng_sign(ctx, pool, base);
@@ -889,15 +912,19 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
 
             if (ctx->balancer_name && buf && sz > 0) {
                 char url[512];
+                apr_int64_t msg_ts = 0;
                 /* ensure NUL-terminated for parsing/verification */
                 buf[sz - 1] = '\0';
 
                 /* Phase 4: when a secret is set, drop any message that isn't
                  * authentically signed and fresh -- BEFORE parsing/acting on
-                 * its url.  Rate-limit the rejection log to avoid flooding. */
+                 * its url.  Rate-limit the rejection log to avoid flooding.
+                 * msg_ts (microseconds) is the signed timestamp, used below for
+                 * the per-url monotonic replay check. */
                 if (ctx->has_secret) {
                     const char *reason = "?";
-                    if (!nng_verify(ctx, buf, apr_time_now(), &reason)) {
+                    if (!nng_verify(ctx, buf, apr_time_now(), &msg_ts,
+                                    &reason)) {
                         nng_log_throttled(ctx, apr_time_now(), reason);
                         nng_free(buf, sz);
                         continue;
@@ -907,7 +934,7 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
                 /* Phase 2/3: carries a routable url= -> add the backend (or
                  * refresh last-seen / re-enable if previously evicted). */
                 if (nng_parse_url(buf, url, sizeof(url))) {
-                    nng_handle_announce(ctx, pool, url, apr_time_now());
+                    nng_handle_announce(ctx, pool, url, apr_time_now(), msg_ts);
                 }
             }
 

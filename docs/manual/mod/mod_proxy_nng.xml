@@ -300,8 +300,12 @@ is taken out of rotation</description>
     reverse proxy and on every backend. The publisher signs each announcement
     with a keyed message-authentication code (a SipHash MAC) derived from the
     secret, together with a timestamp; the subscriber recomputes the MAC and
-    verifies the timestamp, dropping any announcement that is forged, tampered
-    with, or stale (a replay).</p>
+    checks the timestamp, dropping any announcement that is forged, tampered
+    with, or replayed. Replayed messages are caught two ways: a freshness window
+    (<directive>ProxyNngMaxSkew</directive>) rejects old timestamps, and a
+    per-backend check rejects any announcement whose timestamp does not strictly
+    advance, so a captured-and-resent message (for example, one replayed to keep
+    a dead backend from being evicted) is dropped.</p>
 
     <p>If <directive>ProxyNngSecret</directive> is set on the proxy, every
     announcement must carry a valid, recent MAC or it is rejected. If the
@@ -338,11 +342,11 @@ is taken out of rotation</description>
     <a href="directive-dict.html#Syntax">time-interval</a> directive syntax and
     defaults to seconds.</p>
 
-    <p>If unset, the default is the greater of 30 seconds and twice the
-    announcement <directive>ProxyNngInterval</directive>. A larger window
-    tolerates greater clock skew between hosts; a smaller window bounds how long
-    a captured announcement could be replayed. This directive is used on the
-    proxy.</p>
+    <p>If unset, the default is 30 seconds. A larger window tolerates greater
+    clock skew between hosts; a smaller window bounds the freshness check. Note
+    that the per-backend strictly-increasing-timestamp check (see
+    <directive>ProxyNngSecret</directive>) blocks replays regardless of this
+    window. This directive is used on the proxy.</p>
 </usage>
 </directivesynopsis>
 
