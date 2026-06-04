@@ -65,7 +65,7 @@ APACHE_MODULE(proxy_express, mass reverse-proxy module. Requires --enable-proxy.
 APACHE_MODULE(proxy_hcheck, [reverse-proxy health-check module. Requires --enable-proxy and --enable-watchdog.], , , most, , [proxy,watchdog])
 
 proxy_nng_objs="mod_proxy_nng.lo"
-APACHE_MODULE(proxy_nng, [reverse-proxy nng pub/sub PoC. Requires --enable-proxy and --enable-watchdog.], $proxy_nng_objs, , no, [
+APACHE_MODULE(proxy_nng, [reverse-proxy nng pub/sub member announce. Requires --enable-proxy, --enable-proxy-balancer and --enable-watchdog.], $proxy_nng_objs, , no, [
     APACHE_CHECK_NNG
     if test "$ac_cv_nng" = "yes" ; then
       APR_ADDTO(MOD_PROXY_NNG_LDADD, [\$(NNG_LIBS)])
@@ -73,7 +73,7 @@ APACHE_MODULE(proxy_nng, [reverse-proxy nng pub/sub PoC. Requires --enable-proxy
       AC_MSG_WARN([libnng not found, mod_proxy_nng disabled])
       enable_proxy_nng=no
     fi
-], [proxy,watchdog])
+], [proxy,watchdog,proxy_balancer])
 
 APR_ADDTO(INCLUDES, [-I\$(top_srcdir)/$modpath_current -I\$(top_srcdir)/modules/http2])
 

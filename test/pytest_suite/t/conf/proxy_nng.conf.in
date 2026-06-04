@@ -1,6 +1,6 @@
 #t/TEST -proxy_nng
 #
-# Phase 1 PoC config for mod_proxy_nng (nng PUB/SUB).
+# Config for mod_proxy_nng (nng PUB/SUB backend announcement).
 #
 # Backends announce themselves to the reverse proxy.  Because an nng PUB socket
 # is send-only, the data direction (backend -> proxy) makes the backend the
@@ -9,25 +9,43 @@
 #   - reverse proxy (main server): ProxyNngSubscribe -- SUB, listens
 #   - backend (vhost proxy_nng):   ProxyNngPublish   -- PUB, dials the proxy
 #
-# Both run in this single test instance and talk over loopback TCP, driven by
-# the mod_watchdog singleton thread.  The test asserts that the SUB logs the
-# backend's ANNOUNCE messages in the error_log (cf. t/modules/heartbeat.t).
+# Phase 1 proved the channel (the SUB logs each ANNOUNCE).  Phase 2 adds the
+# announcing backend as a member of balancer://nng and enables it, so a request
+# to /nng on the proxy routes to the dynamically-added backend.
+#
+# Everything runs in this single test instance over loopback TCP, driven by the
+# mod_watchdog singleton thread.  The backend advertises the MAIN server's
+# origin (@SERVERNAME@:@PORT@), which serves the framework's index.html
+# ("welcome to <servername>:<port>"); routing /nng/index.html through the proxy
+# must return that body, proving the added member serves traffic.
 
 <IfModule mod_proxy_nng.c>
+<IfModule mod_proxy_balancer.c>
 
-    # Make the SUB's received-announcement logging visible in the error_log.
-    LogLevel proxy_nng:info
+    # SUB received-announcement + balancer add/route logging in the error_log.
+    LogLevel proxy_nng:info proxy_balancer:debug
 
     # A single nng channel port shared by the SUB (listen) and PUB (dial).
     Define NNG_PORT @NextAvailablePort@
 
-    # Reverse proxy == SUBscriber: listen for backend announcements.
+    # Reverse proxy == SUBscriber: listen for backend announcements and add
+    # them as members of balancer://nng.
     ProxyNngSubscribe tcp://127.0.0.1:${NNG_PORT}
+    ProxyNngBalancer  nng
 
-    # Backend balancer == PUBlisher: dial the proxy and announce every 1s.
+    # An initially-empty balancer with spare slots for runtime members.
+    <Proxy balancer://nng>
+        ProxySet growth=10
+    </Proxy>
+    ProxyPass /nng balancer://nng
+
+    # Backend balancer == PUBlisher: dial the proxy, advertise its routable
+    # origin (the main server here), and announce every 1s.
     <VirtualHost proxy_nng>
-        ProxyNngPublish  tcp://127.0.0.1:${NNG_PORT}
-        ProxyNngInterval 1
+        ProxyNngPublish   tcp://127.0.0.1:${NNG_PORT}
+        ProxyNngAdvertise http://@SERVERNAME@:@PORT@
+        ProxyNngInterval  1
     </VirtualHost>
 
+</IfModule>
 </IfModule>

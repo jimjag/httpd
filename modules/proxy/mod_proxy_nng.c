@@ -15,8 +15,8 @@
  */
 
 /*
- * mod_proxy_nng -- Phase 1 proof-of-concept for an nng (nanomsg-next-gen)
- * PUB/SUB channel between a front-end reverse proxy and its backend balancers.
+ * mod_proxy_nng -- an nng (nanomsg-next-gen) PUB/SUB channel between a
+ * front-end reverse proxy and its backend balancers.
  *
  * Direction: backends announce themselves to the proxy.  Because an nng PUB
  * socket is send-only, the data direction (backend -> proxy) makes the backend
@@ -26,23 +26,40 @@
  *   - Backend server: ProxyNngPublish   tcp://proxy-host:5555 (PUB, dials in)
  *
  * The proxy is the stable rendezvous listener; each backend dials in on
- * startup and periodically publishes an "ANNOUNCE" heartbeat.  The proxy logs
- * every announcement it receives.  This PoC only proves the channel; it does
- * not yet feed the balancer member list.
+ * startup and periodically publishes an "ANNOUNCE" heartbeat.
+ *
+ * Phase 1 (the channel): the proxy simply logged each announcement, proving the
+ * PUB/SUB transport works between separate, remote servers over TCP.
+ *
+ * Phase 2 (this file): when the proxy SUB receives an announcement that carries
+ * a backend URL, it ADDS that backend as a member (worker) of a configured
+ * balancer and ENABLES it -- the dynamic equivalent of "Add Worker" in the
+ * balancer-manager web UI, but driven by the backend announcing itself.  We
+ * reuse mod_proxy_balancer's exported balancer_manage() optional function (the
+ * same core balancer_handler calls), so the add path is identical to the proven
+ * manager flow.  The backend advertises its routable URL via ProxyNngAdvertise;
+ * the proxy names the target balancer via ProxyNngBalancer.
  *
  * The background work runs on a mod_watchdog SINGLETON instance (exactly one
- * child process owns the socket), mirroring mod_proxy_hcheck.c.
+ * child process owns the socket), mirroring mod_proxy_hcheck.c.  That child has
+ * no request_rec, so the SUB synthesizes a minimal one for balancer_manage()
+ * (see nng_make_fake_request -- adapted from mod_proxy_hcheck's
+ * create_request_rec, plus a fake conn_rec that ap_log_rerror requires).
  */
 
 #include "httpd.h"
 #include "http_config.h"
 #include "http_core.h"
 #include "http_log.h"
+#include "http_protocol.h"
 #include "ap_provider.h"
 #include "mod_watchdog.h"
+#include "mod_proxy.h"
 
 #include "apr_strings.h"
 #include "apr_time.h"
+#include "apr_hash.h"
+#include "apr_uri.h"
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>             /* for getpid() */
@@ -68,12 +85,16 @@ typedef struct {
     server_rec          *s;            /* canonical server identity */
     char                *pub_url;      /* ProxyNngPublish   (backend dial url) */
     char                *sub_url;      /* ProxyNngSubscribe (proxy listen url) */
+    char                *advertise_url;/* ProxyNngAdvertise (PUB: routable url) */
+    char                *balancer_name;/* ProxyNngBalancer  (SUB: bare bal name) */
     apr_interval_time_t  interval;     /* ProxyNngInterval (announce period) */
     nng_role_e           role;
     nng_socket           sock;         /* live socket; valid only when opened */
     int                  opened;       /* guard double-open / stop-without-start */
     apr_time_t           last_publish; /* PUB throttle */
     apr_uint64_t         seq;          /* announcement counter */
+    apr_hash_t          *seen;         /* SUB: urls already added (dedup) */
+    APR_OPTIONAL_FN_TYPE(balancer_manage) *manage_fn; /* SUB: cached, lazy */
 } nng_ctx_t;
 
 /* Process-wide watchdog handle, like mod_proxy_hcheck's static watchdog. */
@@ -92,6 +113,7 @@ static void *nng_create_server_config(apr_pool_t *p, server_rec *s)
     apr_pool_tag(ctx->p, "proxy_nng");
     ctx->interval = NNG_DEFAULT_INTERVAL;
     ctx->role = NNG_ROLE_NONE;
+    ctx->seen = apr_hash_make(ctx->p);
 
     return ctx;
 }
@@ -130,6 +152,49 @@ static const char *nng_set_pub_url(cmd_parms *cmd, void *dummy, const char *arg)
     return NULL;
 }
 
+static const char *nng_set_advertise(cmd_parms *cmd, void *dummy,
+                                     const char *arg)
+{
+    nng_ctx_t *ctx = ap_get_module_config(cmd->server->module_config,
+                                          &proxy_nng_module);
+    apr_uri_t uri;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_HTACCESS);
+    if (err) {
+        return err;
+    }
+    /* Must be a routable backend URL (scheme://host[:port]); it becomes a
+     * BalancerMember on the proxy. */
+    if (apr_uri_parse(cmd->pool, arg, &uri) != APR_SUCCESS
+        || !uri.scheme || !uri.hostname) {
+        return apr_psprintf(cmd->pool,
+                            "ProxyNngAdvertise: '%s' is not a valid "
+                            "scheme://host[:port] URL", arg);
+    }
+    ctx->advertise_url = apr_pstrdup(cmd->pool, arg);
+    return NULL;
+}
+
+static const char *nng_set_balancer(cmd_parms *cmd, void *dummy,
+                                    const char *arg)
+{
+    nng_ctx_t *ctx = ap_get_module_config(cmd->server->module_config,
+                                          &proxy_nng_module);
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_HTACCESS);
+    if (err) {
+        return err;
+    }
+    /* Store the bare name; balancer_manage() prepends BALANCER_PREFIX itself.
+     * Be forgiving if the admin wrote the full "balancer://name". */
+    if (!strncasecmp(arg, BALANCER_PREFIX, sizeof(BALANCER_PREFIX) - 1)) {
+        arg += sizeof(BALANCER_PREFIX) - 1;
+    }
+    if (!*arg) {
+        return "ProxyNngBalancer: empty balancer name";
+    }
+    ctx->balancer_name = apr_pstrdup(cmd->pool, arg);
+    return NULL;
+}
+
 static const char *nng_set_interval(cmd_parms *cmd, void *dummy,
                                     const char *arg)
 {
@@ -164,6 +229,12 @@ static const command_rec nng_cmds[] = {
                   "e.g. tcp://proxy-host:5555"),
     AP_INIT_TAKE1("ProxyNngInterval", nng_set_interval, NULL, RSRC_CONF,
                   "backend announcement interval in seconds (default 5)"),
+    AP_INIT_TAKE1("ProxyNngAdvertise", nng_set_advertise, NULL, RSRC_CONF,
+                  "backend: routable URL to advertise to the proxy, "
+                  "e.g. http://10.0.0.5:8080 (added as a BalancerMember)"),
+    AP_INIT_TAKE1("ProxyNngBalancer", nng_set_balancer, NULL, RSRC_CONF,
+                  "proxy: name of the balancer that announced backends are "
+                  "added to, e.g. nng (for balancer://nng)"),
     { NULL }
 };
 
@@ -231,6 +302,156 @@ static void nng_cb_starting(nng_ctx_t *ctx)
     }
 }
 
+/*
+ * Synthesize a minimal request_rec for balancer_manage(), which runs here in
+ * the watchdog thread with no real client request.  Adapted from
+ * mod_proxy_hcheck.c's create_request_rec (same watchdog context), but that one
+ * attaches a real backend conn_rec before logging; we have none, so we fabricate
+ * a minimal conn_rec too.
+ *
+ * balancer_manage()/balancer_process_balancer_worker() touch only r->pool,
+ * r->server, and ap_log_rerror().  ap_log_rerror is the trap: log_error_core()
+ * asserts r->connection != NULL and do_errorlog_default() unconditionally reads
+ * r->connection->outgoing, while add_log_id()->core_generate_log_id() reads
+ * c->current_thread.  So we (a) give r a non-NULL conn_rec with ->outgoing set,
+ * and (b) pre-set r->log_id / c->log_id so the log-id generation path is skipped
+ * entirely.
+ */
+static request_rec *nng_make_fake_request(apr_pool_t *p, server_rec *s)
+{
+    conn_rec *c = apr_pcalloc(p, sizeof(*c));
+    request_rec *r = apr_pcalloc(p, sizeof(*r));
+
+    c->pool         = p;
+    c->base_server  = s;
+    c->log          = &s->log;
+    c->log_id       = "nng";    /* non-NULL -> skip add_log_id/log-id gen */
+    c->outgoing     = 1;        /* read by do_errorlog_default() */
+    c->client_ip    = "-";
+    c->notes        = apr_table_make(p, 1);
+
+    r->pool           = p;
+    r->server         = s;
+    r->connection     = c;
+    r->log            = &s->log;
+    r->log_id         = "nng";
+    r->per_dir_config = s->lookup_defaults;
+    r->request_config = ap_create_request_config(p);
+    r->notes          = apr_table_make(p, 4);
+    r->subprocess_env = apr_table_make(p, 4);
+    r->headers_in     = apr_table_make(p, 1);
+    r->headers_out    = apr_table_make(p, 1);
+    r->err_headers_out = apr_table_make(p, 1);
+    r->useragent_ip   = "-";
+    r->useragent_addr = NULL;
+    r->proxyreq       = PROXYREQ_RESPONSE;
+    r->status         = HTTP_OK;
+
+    return r;
+}
+
+/*
+ * Add (and enable) a freshly-announced backend as a member of the configured
+ * balancer, reusing mod_proxy_balancer's balancer_manage() -- the exact path the
+ * balancer-manager UI uses.  Two calls: add (the worker is created DISABLED by
+ * default), then clear the DISABLED flag so it serves traffic.  Idempotent via
+ * ctx->seen so a backend re-announcing every interval is added only once.
+ */
+static void nng_add_member(nng_ctx_t *ctx, apr_pool_t *pool, const char *url)
+{
+    server_rec *s = ctx->s;
+    apr_pool_t *subp;
+    request_rec *r;
+    apr_table_t *params;
+    apr_status_t rv;
+
+    /* Already added?  (Backends re-announce every interval.) */
+    if (apr_hash_get(ctx->seen, url, APR_HASH_KEY_STRING)) {
+        return;
+    }
+
+    /* Lazily retrieve balancer_manage; mod_proxy_balancer registers it at
+     * hook-registration time, so it is available by the time we run. */
+    if (!ctx->manage_fn) {
+        ctx->manage_fn = APR_RETRIEVE_OPTIONAL_FN(balancer_manage);
+        if (!ctx->manage_fn) {
+            ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
+                         "mod_proxy_nng: balancer_manage unavailable "
+                         "(is mod_proxy_balancer loaded?); cannot add %s", url);
+            /* Mark as seen so we don't log this every interval. */
+            apr_hash_set(ctx->seen, apr_pstrdup(ctx->p, url),
+                         APR_HASH_KEY_STRING, (void *)1);
+            return;
+        }
+    }
+
+    apr_pool_create(&subp, pool);
+    r = nng_make_fake_request(subp, s);
+
+    /* Step 1: add the worker (created DISABLED). */
+    params = apr_table_make(subp, 4);
+    apr_table_setn(params, "b", ctx->balancer_name);
+    apr_table_setn(params, "b_nwrkr", url);
+    apr_table_setn(params, "b_wyes", "1");
+    rv = ctx->manage_fn(r, params);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
+                     "mod_proxy_nng: failed to add worker %s to balancer://%s",
+                     url, ctx->balancer_name);
+        apr_pool_destroy(subp);
+        return;
+    }
+
+    /* Step 2: enable it (clear the DISABLED flag) so it serves traffic. */
+    params = apr_table_make(subp, 4);
+    apr_table_setn(params, "b", ctx->balancer_name);
+    apr_table_setn(params, "w", url);
+    apr_table_setn(params, "w_status_D", "0");
+    rv = ctx->manage_fn(r, params);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
+                     "mod_proxy_nng: added but failed to enable worker %s "
+                     "in balancer://%s", url, ctx->balancer_name);
+        /* fall through: still mark seen; it's a member, just disabled */
+    }
+
+    apr_hash_set(ctx->seen, apr_pstrdup(ctx->p, url), APR_HASH_KEY_STRING,
+                 (void *)1);
+    ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
+                 "mod_proxy_nng: added backend %s to balancer://%s",
+                 url, ctx->balancer_name);
+
+    apr_pool_destroy(subp);
+}
+
+/*
+ * Extract the value of the "url=" token from an ANNOUNCE message into buf.
+ * Returns 1 on success.  The payload is untrusted network input, so parse
+ * defensively: the token is "url=" followed by non-space characters.
+ */
+static int nng_parse_url(const char *msg, char *buf, apr_size_t buflen)
+{
+    const char *p = msg;
+
+    while (p && *p) {
+        if (!strncmp(p, "url=", 4)) {
+            apr_size_t i = 0;
+            p += 4;
+            while (*p && *p != ' ' && i + 1 < buflen) {
+                buf[i++] = *p++;
+            }
+            buf[i] = '\0';
+            return (i > 0);
+        }
+        /* advance to the next space-separated token */
+        p = strchr(p, ' ');
+        if (p) {
+            p++;
+        }
+    }
+    return 0;
+}
+
 /* RUNNING: PUB sends a throttled heartbeat; SUB drains its receive queue. */
 static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
 {
@@ -244,12 +465,24 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
     if (ctx->role == NNG_ROLE_PUB) {
         apr_time_t now = apr_time_now();
         if (now >= ctx->last_publish + ctx->interval) {
-            char *msg = apr_psprintf(pool,
+            const char *host = ctx->s->server_hostname
+                                   ? ctx->s->server_hostname : "(unknown)";
+            char *msg;
+            /* Carry the routable URL so the proxy can add us as a member.
+             * Without ProxyNngAdvertise, fall back to the Phase-1 payload
+             * (channel proof only; the SUB just logs it). */
+            if (ctx->advertise_url) {
+                msg = apr_psprintf(pool,
+                            "ANNOUNCE url=%s host=%s pid=%" APR_PID_T_FMT
+                            " seq=%" APR_UINT64_T_FMT,
+                            ctx->advertise_url, host, getpid(), ctx->seq++);
+            }
+            else {
+                msg = apr_psprintf(pool,
                             "ANNOUNCE host=%s pid=%" APR_PID_T_FMT
                             " seq=%" APR_UINT64_T_FMT,
-                            ctx->s->server_hostname
-                                ? ctx->s->server_hostname : "(unknown)",
-                            getpid(), ctx->seq++);
+                            host, getpid(), ctx->seq++);
+            }
             /* nng copies the data on send; msg lives in the temp pool. */
             if ((rv = nng_send(ctx->sock, msg, strlen(msg) + 1, 0)) != 0) {
                 ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
@@ -277,6 +510,18 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
             ap_log_error(APLOG_MARK, APLOG_INFO, 0, s,
                          "mod_proxy_nng: SUB received: %.*s",
                          (int)sz, buf ? buf : "");
+
+            /* Phase 2: if a target balancer is configured and the message
+             * carries a routable url=, add the backend as a member. */
+            if (ctx->balancer_name && buf && sz > 0) {
+                char url[512];
+                /* ensure NUL-terminated for the parser */
+                buf[sz - 1] = '\0';
+                if (nng_parse_url(buf, url, sizeof(url))) {
+                    nng_add_member(ctx, pool, url);
+                }
+            }
+
             nng_free(buf, sz);
         }
     }
@@ -373,7 +618,8 @@ static int nng_post_config(apr_pool_t *pconf, apr_pool_t *plog,
 
 static void nng_register_hooks(apr_pool_t *p)
 {
-    static const char *const aszSucc[] = { "mod_watchdog.c", NULL };
+    static const char *const aszSucc[] = { "mod_watchdog.c",
+                                           "mod_proxy_balancer.c", NULL };
     ap_hook_post_config(nng_post_config, NULL, aszSucc, APR_HOOK_LAST);
 }
 

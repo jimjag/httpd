@@ -387,6 +387,66 @@ Status: **Phase 1 complete** — PUB/SUB channel proven over TCP. Configured for
 loopback here; cross-host is the same config with the backend's `ProxyNngPublish`
 pointing at the proxy host's IP (see §7 verification recipe).
 
+## 10. Phase 2 — announced backend becomes a balancer member (DONE)
+
+Phase 2 closes the loop: when the proxy SUB receives an announcement carrying a
+routable URL, it adds that backend as a member of a configured balancer and
+enables it — driven by the backend announcing itself.
+
+### Reuse strategy (user-chosen)
+Reuse mod_proxy_balancer's exported optional fn **`balancer_manage(request_rec*,
+apr_table_t*)`** — the same core the balancer-manager UI calls
+(`balancer_process_balancer_worker`). It skips the CSRF nonce/Referer (those
+guard the web UI only; this is a trusted internal path). We do **not** issue a
+real HTTP request and do **not** re-implement the add primitives. Two calls:
+- add: `{ b=<name>, b_nwrkr=<url>, b_wyes=1 }` (worker created DISABLED)
+- enable: `{ b=<name>, w=<url>, w_status_D=0 }` (clears DISABLED → usable)
+
+### The one real hazard: synthetic request_rec
+The SUB runs in the watchdog thread with no `request_rec`, but `balancer_manage`
+logs via `ap_log_rerror`. Verified in `server/log.c`: `log_error_core` asserts
+`r->connection != NULL`, `do_errorlog_default` reads `r->connection->outgoing`
+unconditionally, and `add_log_id`→`core_generate_log_id` reads
+`c->current_thread`. So `nng_make_fake_request` (modeled on
+`mod_proxy_hcheck.c:344 create_request_rec`, plus a fake `conn_rec` that hcheck
+doesn't need because it attaches a real backend conn) sets a non-NULL conn_rec
+with `->outgoing` and pre-sets `r->log_id`/`c->log_id` to skip log-id generation.
+Confirmed crash-free at runtime.
+
+### New directives
+- `ProxyNngAdvertise <url>` (backend/PUB) — routable origin to advertise,
+  uri-validated at config time. Payload becomes
+  `ANNOUNCE url=http://host:port host=.. pid=.. seq=..` (Phase-1 payload kept
+  when unset → backward compatible).
+- `ProxyNngBalancer <name>` (proxy/SUB) — target balancer (bare name; a leading
+  `balancer://` is stripped). Without it, SUB stays Phase-1 log-only.
+
+### Idempotence
+`ctx->seen` (apr_hash) tracks added URLs so a backend re-announcing every
+interval is added exactly once — and avoids misleading per-interval
+"failed to add" ERR spam once slots fill. The add bumps `bsel->wupdated` in
+slotmem, so all children pick up the new worker via `ap_proxy_sync_balancer`.
+
+### Build/deps
+config.m4 dep list → `[proxy,watchdog,proxy_balancer]`; hook `aszSucc` gains
+`mod_proxy_balancer.c`. `balancer_manage` retrieved lazily via
+`APR_RETRIEVE_OPTIONAL_FN` on first announcement.
+
+### End-to-end test — PASSING
+Extended `t/conf/proxy_nng.conf.in` (empty `balancer://nng` with `growth=10`,
+`ProxyPass /nng balancer://nng`, `ProxyNngBalancer nng`; backend
+`ProxyNngAdvertise http://@SERVERNAME@:@PORT@` → the main server's index.html)
+and `tests/t/modules/test_proxy_nng.py`. Asserts: announcements carry `url=`;
+backend added **exactly once** (dedup); no add-failure spam; and
+`GET /nng/index.html` returns 200 with the backend body — proving the
+dynamically added+enabled member actually serves. Error log confirms:
+```
+SUB received: ANNOUNCE url=http://localhost:8529 ... seq=0..4
+added backend http://localhost:8529 to balancer://nng     (once; 0 failures)
+```
+
+Status: **Phase 2 complete.**
+
 ## 8. References
 - nng PUB/SUB getting started: https://nanomsg.org/gettingstarted/nng/pubsub.html
 - nng_pub(7): https://nng.nanomsg.org/man/v1.10.0/nng_pub.7.html
