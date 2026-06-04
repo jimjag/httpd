@@ -447,6 +447,61 @@ added backend http://localhost:8529 to balancer://nng     (once; 0 failures)
 
 Status: **Phase 2 complete.**
 
+## 11. Phase 3 — evict a backend that stops announcing (DONE)
+
+The inverse of Phase 2: when a backend stops announcing for longer than a
+timeout, take it out of rotation; re-enable it if it starts announcing again.
+Gives the cluster automatic liveness with no operator action.
+
+### Mechanism (reuses Phase-2 machinery)
+Runtime worker *removal* doesn't exist in httpd, so eviction is a **status-flag
+flip** — exactly what mod_proxy_hcheck does on health-check failure
+(`mod_proxy_hcheck.c:967`). Via the same `balancer_manage`:
+- evict: `{ b, w=<url>, w_status_D="1" }` → DISABLED (out of rotation)
+- re-enable: `{ b, w=<url>, w_status_D="0" }`
+
+`w_status_D` set=1/0 go through identical code (`mod_proxy_balancer.c:1147`); the
+disable→enable transition sets `need_reset` so the lb method re-syncs. Disabling
+only flips the shm bit — in-flight requests unaffected. The Phase-2
+`nng_make_fake_request` + `manage_fn` cover it; the add/enable/evict/re-enable
+calls were factored into one `nng_set_worker_disabled(ctx,pool,url,disabled)`.
+
+### State (per-URL, in the watchdog singleton's ctx — no shared memory)
+`ctx->seen` now maps url → `nng_member_t { apr_time_t last_seen; int added;
+int evicted; }`. `evicted` gates redundant flips (don't re-disable every sweep
+tick / re-enable every announce). `last_seen` is set to *now* at add time so a
+just-added member isn't immediately swept.
+- on ANNOUNCE: new → add+enable+record; existing → refresh `last_seen`, and if
+  `evicted` re-enable + clear.
+- sweep (in the SUB branch, throttled ~1s via `last_sweep`): skip if
+  `evict_timeout==0`; disable members with `added && !evicted &&
+  now-last_seen > evict_timeout`.
+
+### Directive (scope: directive-configured, live-tuning deferred)
+`ProxyNngTimeout <secs>` (proxy/SUB). **Default 0 ⇒ eviction disabled ⇒ pure
+Phase-2 behavior** (backward compatible). The user explicitly deferred a
+*live-tunable* timeout; when revisited it moves to a 1-slot named slotmem (so the
+arbitrary handler child and the watchdog singleton share it) + a small
+`proxy-nng-manager` handler. No shared memory / handler / child_init needed now.
+
+### End-to-end test — PASSING
+Single-instance harness can't make a backend go silent, so the test creates a
+*gap*: `ProxyNngTimeout 1` on the proxy + `ProxyNngInterval 4` on the backend ⇒
+each cycle is add → (stale ~1s) evict → next announce re-enables.
+`test_proxy_nng.py` polls `/nng/index.html` for a 200 with the backend body
+(serves while enabled), then scans the error_log for the full lifecycle. Log
+confirms:
+```
+added backend http://localhost:8529 to balancer://nng
+evicted backend http://localhost:8529 ... (no announcement for 1s)
+re-enabled backend http://localhost:8529 ... (announcing again)
+evicted ... / re-enabled ...   (cycle repeats each 4s interval)
+```
+
+Status: **Phase 3 complete.** Eviction is the symmetric inverse of the Phase-2
+add, via the same balancer_manage path; member-removal-from-slotmem remains a
+non-feature of httpd, so "evict" = disable (reversible).
+
 ## 8. References
 - nng PUB/SUB getting started: https://nanomsg.org/gettingstarted/nng/pubsub.html
 - nng_pub(7): https://nng.nanomsg.org/man/v1.10.0/nng_pub.7.html

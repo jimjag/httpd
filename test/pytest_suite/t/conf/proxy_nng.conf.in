@@ -33,6 +33,11 @@
     ProxyNngSubscribe tcp://127.0.0.1:${NNG_PORT}
     ProxyNngBalancer  nng
 
+    # Phase 3: disable a backend that hasn't announced in 1s.  Combined with the
+    # backend's 4s announce interval below, this guarantees an eviction gap
+    # (announce -> stale after ~1s -> evicted -> next announce re-enables).
+    ProxyNngTimeout   1
+
     # An initially-empty balancer with spare slots for runtime members.
     <Proxy balancer://nng>
         ProxySet growth=10
@@ -44,7 +49,11 @@
     <VirtualHost proxy_nng>
         ProxyNngPublish   tcp://127.0.0.1:${NNG_PORT}
         ProxyNngAdvertise http://@SERVERNAME@:@PORT@
-        ProxyNngInterval  1
+        # Announce every 4s.  With the proxy's 1s ProxyNngTimeout this leaves a
+        # ~3s window each cycle where the member is stale and gets evicted, then
+        # the next announcement re-enables it -- exercising the full Phase-3
+        # add -> evict -> re-enable lifecycle in a single-instance test.
+        ProxyNngInterval  4
     </VirtualHost>
 
 </IfModule>
