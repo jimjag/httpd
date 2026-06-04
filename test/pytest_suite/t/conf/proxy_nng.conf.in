@@ -1,0 +1,33 @@
+#t/TEST -proxy_nng
+#
+# Phase 1 PoC config for mod_proxy_nng (nng PUB/SUB).
+#
+# Backends announce themselves to the reverse proxy.  Because an nng PUB socket
+# is send-only, the data direction (backend -> proxy) makes the backend the
+# PUBlisher and the proxy the SUBscriber:
+#
+#   - reverse proxy (main server): ProxyNngSubscribe -- SUB, listens
+#   - backend (vhost proxy_nng):   ProxyNngPublish   -- PUB, dials the proxy
+#
+# Both run in this single test instance and talk over loopback TCP, driven by
+# the mod_watchdog singleton thread.  The test asserts that the SUB logs the
+# backend's ANNOUNCE messages in the error_log (cf. t/modules/heartbeat.t).
+
+<IfModule mod_proxy_nng.c>
+
+    # Make the SUB's received-announcement logging visible in the error_log.
+    LogLevel proxy_nng:info
+
+    # A single nng channel port shared by the SUB (listen) and PUB (dial).
+    Define NNG_PORT @NextAvailablePort@
+
+    # Reverse proxy == SUBscriber: listen for backend announcements.
+    ProxyNngSubscribe tcp://127.0.0.1:${NNG_PORT}
+
+    # Backend balancer == PUBlisher: dial the proxy and announce every 1s.
+    <VirtualHost proxy_nng>
+        ProxyNngPublish  tcp://127.0.0.1:${NNG_PORT}
+        ProxyNngInterval 1
+    </VirtualHost>
+
+</IfModule>

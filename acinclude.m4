@@ -815,6 +815,56 @@ AC_DEFUN([APACHE_CHECK_SERF], [
   fi
 ])
 
+dnl
+dnl APACHE_CHECK_NNG
+dnl
+dnl Configure for the detected libnng (nanomsg-next-gen), giving preference to
+dnl "--with-nng=<path>" if it was specified.  Used by mod_proxy_nng.
+dnl
+dnl Modelled on APACHE_CHECK_OPENSSL (used by mod_ssl): the include path is
+dnl added to the global CPPFLAGS (which is APACHE_SUBST'd and so reliably
+dnl reaches the compile, unlike MOD_INCLUDES), and the library is exported via
+dnl NNG_LIBS for the module's MOD_PROXY_NNG_LDADD.
+dnl
+AC_DEFUN([APACHE_CHECK_NNG], [
+  AC_CACHE_CHECK([for libnng], [ac_cv_nng], [
+    ac_cv_nng=no
+    ap_nng_base=""
+    AC_ARG_WITH(nng, APACHE_HELP_STRING([--with-nng=PATH],
+                                    [nng (nanomsg-next-gen) installation directory]),
+    [
+        if test "x$withval" != "xyes" -a "x$withval" != "x"; then
+          ap_nng_base="`cd $withval ; pwd`"
+        fi
+    ])
+
+    saved_CPPFLAGS="$CPPFLAGS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_LIBS="$LIBS"
+    if test "x$ap_nng_base" != "x"; then
+      CPPFLAGS="$CPPFLAGS -I$ap_nng_base/include"
+      LDFLAGS="$LDFLAGS -L$ap_nng_base/lib"
+    fi
+    AC_CHECK_HEADERS(nng/nng.h, [
+      AC_CHECK_LIB(nng, nng_pub0_open, [ac_cv_nng="yes"])
+    ])
+    CPPFLAGS="$saved_CPPFLAGS"
+    LDFLAGS="$saved_LDFLAGS"
+    LIBS="$saved_LIBS"
+  ])
+
+  APACHE_SUBST(NNG_LIBS)
+  if test "$ac_cv_nng" = "yes"; then
+    AC_DEFINE(HAVE_NNG, 1, [Define if libnng is available])
+    if test "x$ap_nng_base" != "x"; then
+      APR_ADDTO(CPPFLAGS, [-I$ap_nng_base/include])
+      APR_SETVAR(NNG_LIBS, [-L$ap_nng_base/lib -lnng])
+    else
+      APR_SETVAR(NNG_LIBS, [-lnng])
+    fi
+  fi
+])
+
 AC_DEFUN([APACHE_CHECK_SYSTEMD], [
 dnl Check for systemd support for listen.c's socket activation.
 case $host in
