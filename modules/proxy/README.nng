@@ -65,13 +65,18 @@ Adding/removing members (reuses the balancer-manager path):
 
 
 Message format:
-  Plain ASCII, space-separated key=value tokens:
+  Plain ASCII, space-separated key=value tokens (no trailing NUL byte on the
+  wire):
 
     ANNOUNCE url=http://host:port host=<h> pid=<n> seq=<n> ts=<usec> mac=<hex>
 
   url= is the routable backend origin the proxy adds as a BalancerMember. ts=
   (microseconds since the epoch) and mac= are present only when a shared secret
   is configured (see below). host=/pid=/seq= are informational.
+
+  The SUB copies each received nng message into a pool-backed NUL-terminated
+  buffer (apr_pstrmemdup) before parsing, so the wire format does not depend on
+  a trailing NUL and is compatible with third-party publishers.
 
 
 Authentication (ProxyNngSecret, optional but recommended):

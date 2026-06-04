@@ -136,11 +136,12 @@ typedef struct {
     apr_uint64_t         reject_count; /* SUB: dropped-since-last-log counter */
     apr_time_t           last_reject_log; /* SUB: reject-log rate limiter */
     int                  warned_insecure; /* SUB: emitted the one-time warning */
+    int                  open_failed;     /* STARTING: socket open/listen/dial failed permanently */
 } nng_ctx_t;
 
 /* SipHash-2-4 output is 8 bytes -> 16 hex chars (+ NUL). */
 #define NNG_MAC_HEXLEN  (APR_SIPHASH_DSIZE * 2)
-#define NNG_MAXSKEW_DEFAULT  30   /* seconds, floor; raised to 2x interval */
+#define NNG_MAXSKEW_DEFAULT  30   /* seconds */
 
 /* When an add fails (e.g. the balancer is full), don't retry on every
  * announcement -- back off this long between attempts for a given url. */
@@ -358,7 +359,7 @@ static const command_rec nng_cmds[] = {
     AP_INIT_TAKE1("ProxyNngMaxSkew", nng_set_maxskew, NULL, RSRC_CONF,
                   "proxy: max allowed seconds between an announcement's timestamp "
                   "and now (anti-replay window; requires NTP-synced clocks). "
-                  "Default max(30s, 2x interval)."),
+                  "Default 30 seconds."),
     { NULL }
 };
 
@@ -368,40 +369,59 @@ static void nng_cb_starting(nng_ctx_t *ctx)
     server_rec *s = ctx->s;
     int rv;
 
-    if (ctx->opened) {
+    /* A prior open/listen/dial failure is treated as permanent: the admin
+     * must fix the configuration (bad URL, port conflict) and restart.
+     * Without this guard the watchdog would retry every ~100ms and fill the
+     * error log. */
+    if (ctx->opened || ctx->open_failed) {
         return;
     }
 
     if (ctx->role == NNG_ROLE_SUB) {
         if ((rv = nng_sub0_open(&ctx->sock)) != 0) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                         "mod_proxy_nng: nng_sub0_open failed: %s",
+                         APLOGNO() "mod_proxy_nng: nng_sub0_open failed: %s",
                          nng_strerror(rv));
+            ctx->open_failed = 1;
             return;
         }
-        /* Empty prefix subscribes to everything. */
-        if ((rv = nng_sub0_socket_subscribe(ctx->sock, "", 0)) != 0) {
+        /* Empty prefix subscribes to everything.  Use the generic option
+         * setter (NNG_OPT_SUB_SUBSCRIBE) rather than the nng_sub0_socket_subscribe
+         * convenience wrapper, which only exists in newer libnng (>= 1.9); this
+         * form works back to at least 1.8. */
+        if ((rv = nng_socket_set(ctx->sock, NNG_OPT_SUB_SUBSCRIBE, "", 0)) != 0) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                         "mod_proxy_nng: subscribe failed: %s",
+                         APLOGNO() "mod_proxy_nng: subscribe failed: %s",
                          nng_strerror(rv));
             nng_close(ctx->sock);
+            ctx->open_failed = 1;
             return;
         }
         if ((rv = nng_listen(ctx->sock, ctx->sub_url, NULL, 0)) != 0) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                         "mod_proxy_nng: nng_listen(%s) failed: %s",
+                         APLOGNO() "mod_proxy_nng: nng_listen(%s) failed: %s",
                          ctx->sub_url, nng_strerror(rv));
             nng_close(ctx->sock);
+            ctx->open_failed = 1;
             return;
         }
         ctx->opened = 1;
         ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
-                     "mod_proxy_nng: SUB listening on %s", ctx->sub_url);
+                     APLOGNO() "mod_proxy_nng: SUB listening on %s", ctx->sub_url);
+        /* Warn if no balancer is configured: SUB will log announcements but
+         * will not add any backend workers (Phase-1 log-only behavior). */
+        if (!ctx->balancer_name) {
+            ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
+                         APLOGNO() "mod_proxy_nng: SUB on %s has no ProxyNngBalancer; "
+                         "announcements will be logged only. "
+                         "Set ProxyNngBalancer to add announced backends.",
+                         ctx->sub_url);
+        }
         /* Phase 4: warn once if we'll add members from an unauthenticated
          * channel (anyone who can reach this port could announce a backend). */
         if (ctx->balancer_name && !ctx->has_secret && !ctx->warned_insecure) {
             ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
-                         "mod_proxy_nng: announcement channel on %s is "
+                         APLOGNO() "mod_proxy_nng: announcement channel on %s is "
                          "UNAUTHENTICATED; set ProxyNngSecret on the proxy and "
                          "all backends to require signed announcements",
                          ctx->sub_url);
@@ -411,8 +431,9 @@ static void nng_cb_starting(nng_ctx_t *ctx)
     else if (ctx->role == NNG_ROLE_PUB) {
         if ((rv = nng_pub0_open(&ctx->sock)) != 0) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                         "mod_proxy_nng: nng_pub0_open failed: %s",
+                         APLOGNO() "mod_proxy_nng: nng_pub0_open failed: %s",
                          nng_strerror(rv));
+            ctx->open_failed = 1;
             return;
         }
         /*
@@ -424,15 +445,16 @@ static void nng_cb_starting(nng_ctx_t *ctx)
         if ((rv = nng_dial(ctx->sock, ctx->pub_url, NULL,
                            NNG_FLAG_NONBLOCK)) != 0) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
-                         "mod_proxy_nng: nng_dial(%s) failed: %s",
+                         APLOGNO() "mod_proxy_nng: nng_dial(%s) failed: %s",
                          ctx->pub_url, nng_strerror(rv));
             nng_close(ctx->sock);
+            ctx->open_failed = 1;
             return;
         }
         ctx->opened = 1;
         ctx->last_publish = 0; /* announce on the first running tick */
         ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
-                     "mod_proxy_nng: PUB dialing %s", ctx->pub_url);
+                     APLOGNO() "mod_proxy_nng: PUB dialing %s", ctx->pub_url);
     }
 }
 
@@ -478,7 +500,7 @@ static request_rec *nng_make_fake_request(apr_pool_t *p, server_rec *s)
     r->err_headers_out = apr_table_make(p, 1);
     r->useragent_ip   = "-";
     r->useragent_addr = NULL;
-    r->proxyreq       = PROXYREQ_RESPONSE;
+    r->proxyreq       = PROXYREQ_PROXY;
     r->status         = HTTP_OK;
 
     return r;
@@ -494,7 +516,7 @@ static int nng_have_manage_fn(nng_ctx_t *ctx)
         ctx->manage_fn = APR_RETRIEVE_OPTIONAL_FN(balancer_manage);
         if (!ctx->manage_fn) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, ctx->s,
-                         "mod_proxy_nng: balancer_manage unavailable "
+                         APLOGNO() "mod_proxy_nng: balancer_manage unavailable "
                          "(is mod_proxy_balancer loaded?)");
             return 0;
         }
@@ -540,7 +562,7 @@ static void nng_log_throttled(nng_ctx_t *ctx, apr_time_t now, const char *what)
     if (ctx->last_reject_log == 0
         || now - ctx->last_reject_log >= apr_time_from_sec(1)) {
         ap_log_error(APLOG_MARK, APLOG_WARNING, 0, ctx->s,
-                     "mod_proxy_nng: dropped %" APR_UINT64_T_FMT
+                     APLOGNO() "mod_proxy_nng: dropped %" APR_UINT64_T_FMT
                      " announcement(s) (last: %s)", ctx->reject_count, what);
         ctx->reject_count = 0;
         ctx->last_reject_log = now;
@@ -589,11 +611,13 @@ static apr_status_t nng_try_add(nng_ctx_t *ctx, apr_pool_t *pool,
         return rv;
     }
 
-    /* Step 2: enable it (clear the DISABLED flag) so it serves traffic. */
+    /* Step 2: enable it (clear the DISABLED flag) so it serves traffic.
+     * nng_set_worker_disabled is self-contained -- it creates its own subpool
+     * from `pool` -- so it does not rely on `subp`, which we destroyed above. */
     rv = nng_set_worker_disabled(ctx, pool, url, 0);
     if (rv != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
-                     "mod_proxy_nng: added but failed to enable worker %s "
+                     APLOGNO() "mod_proxy_nng: added but failed to enable worker %s "
                      "in balancer://%s", url, ctx->balancer_name);
         /* fall through: still a member, just disabled */
     }
@@ -601,7 +625,7 @@ static apr_status_t nng_try_add(nng_ctx_t *ctx, apr_pool_t *pool,
     m->added = 1;
     m->evicted = 0;
     ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
-                 "mod_proxy_nng: added backend %s to balancer://%s",
+                 APLOGNO() "mod_proxy_nng: added backend %s to balancer://%s",
                  url, ctx->balancer_name);
     return APR_SUCCESS;
 }
@@ -661,7 +685,7 @@ static void nng_handle_announce(nng_ctx_t *ctx, apr_pool_t *pool,
         if (nng_set_worker_disabled(ctx, pool, url, 0) == APR_SUCCESS) {
             m->evicted = 0;
             ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, ctx->s,
-                         "mod_proxy_nng: re-enabled backend %s in "
+                         APLOGNO() "mod_proxy_nng: re-enabled backend %s in "
                          "balancer://%s (announcing again)",
                          url, ctx->balancer_name);
         }
@@ -696,7 +720,7 @@ static void nng_sweep(nng_ctx_t *ctx, apr_pool_t *pool, apr_time_t now)
             if (nng_set_worker_disabled(ctx, pool, url, 1) == APR_SUCCESS) {
                 m->evicted = 1;
                 ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, ctx->s,
-                             "mod_proxy_nng: evicted backend %s from "
+                             APLOGNO() "mod_proxy_nng: evicted backend %s from "
                              "balancer://%s (no announcement for %"
                              APR_TIME_T_FMT "s)",
                              url, ctx->balancer_name,
@@ -743,7 +767,7 @@ static int nng_parse_url(const char *msg, char *buf, apr_size_t buflen)
 static int nng_const_time_eq(const void *a, const void *b, apr_size_t n)
 {
     const unsigned char *p1 = a, *p2 = b;
-    unsigned char diff = 0;
+    volatile unsigned char diff = 0;
     apr_size_t i;
     for (i = 0; i < n; i++) {
         diff |= p1[i] ^ p2[i];
@@ -796,7 +820,13 @@ static int nng_verify(nng_ctx_t *ctx, const char *msg, apr_time_t now,
         *reason = "no mac";
         return 0;
     }
-    /* The received MAC must be exactly NNG_MAC_HEXLEN hex chars. */
+    /* mac= must be the final field: exactly NNG_MAC_HEXLEN chars followed by
+     * end-of-string.  strlen is NUL-safe here -- the caller hands us a
+     * NUL-terminated apr_pstrmemdup() copy -- so a short or garbled payload
+     * cannot make the constant-time compare below over-read past the buffer.
+     * The compare itself validates the hex content; we deliberately do not
+     * pre-scan for hex digits, which would leak MAC bytes through an early
+     * exit (timing oracle). */
     if (strlen(macp + 5) != NNG_MAC_HEXLEN) {
         *reason = "bad mac length";
         return 0;
@@ -879,10 +909,11 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
             }
             /* Phase 4: append a keyed MAC when a shared secret is configured. */
             msg = nng_sign(ctx, pool, base);
-            /* nng copies the data on send; msg lives in the temp pool. */
-            if ((rv = nng_send(ctx->sock, (void *)msg, strlen(msg) + 1, 0)) != 0) {
+            /* nng copies the data on send; msg lives in the temp pool.
+             * Send strlen(msg) bytes only -- no trailing NUL on the wire. */
+            if ((rv = nng_send(ctx->sock, (void *)msg, strlen(msg), 0)) != 0) {
                 ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
-                             "mod_proxy_nng: nng_send failed: %s",
+                             APLOGNO() "mod_proxy_nng: nng_send failed: %s",
                              nng_strerror(rv));
             }
             ctx->last_publish = now;
@@ -895,6 +926,11 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
         for (;;) {
             char *buf = NULL;
             size_t sz = 0;
+            apr_time_t msg_now;
+            const char *msg_str, *safe;
+            char url[512];
+            apr_int64_t msg_ts = 0;
+
             rv = nng_recv(ctx->sock, &buf, &sz,
                           NNG_FLAG_ALLOC | NNG_FLAG_NONBLOCK);
             if (rv == NNG_EAGAIN) {
@@ -902,43 +938,60 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
             }
             if (rv != 0) {
                 ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
-                             "mod_proxy_nng: nng_recv failed: %s",
+                             APLOGNO() "mod_proxy_nng: nng_recv failed: %s",
                              nng_strerror(rv));
                 break;
             }
-            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s,
-                         "mod_proxy_nng: SUB received: %.*s",
-                         (int)sz, buf ? buf : "");
 
-            if (ctx->balancer_name && buf && sz > 0) {
-                char url[512];
-                apr_int64_t msg_ts = 0;
-                /* ensure NUL-terminated for parsing/verification */
-                buf[sz - 1] = '\0';
+            /* Capture a single wall-clock snapshot for this message so that
+             * MAC verification, throttle logging, and last-seen recording all
+             * share the same time base (no TOCTOU drift across calls). */
+            msg_now = apr_time_now();
 
-                /* Phase 4: when a secret is set, drop any message that isn't
-                 * authentically signed and fresh -- BEFORE parsing/acting on
-                 * its url.  Rate-limit the rejection log to avoid flooding.
-                 * msg_ts (microseconds) is the signed timestamp, used below for
-                 * the per-url monotonic replay check. */
-                if (ctx->has_secret) {
-                    const char *reason = "?";
-                    if (!nng_verify(ctx, buf, apr_time_now(), &msg_ts,
-                                    &reason)) {
-                        nng_log_throttled(ctx, apr_time_now(), reason);
-                        nng_free(buf, sz);
-                        continue;
-                    }
-                }
+            /* Copy to a pool-backed NUL-terminated string and release the nng
+             * buffer immediately.  This decouples parsing from the nng
+             * allocation, works with any publisher (NUL-terminated or not),
+             * and eliminates the in-place buf[sz-1]='\0' truncation. */
+            msg_str = (buf && sz > 0) ? apr_pstrmemdup(pool, buf, sz) : NULL;
+            nng_free(buf, sz);
 
-                /* Phase 2/3: carries a routable url= -> add the backend (or
-                 * refresh last-seen / re-enable if previously evicted). */
-                if (nng_parse_url(buf, url, sizeof(url))) {
-                    nng_handle_announce(ctx, pool, url, apr_time_now(), msg_ts);
+            if (!msg_str) {
+                continue;
+            }
+
+            /* Escape the untrusted payload before it can reach the log: a
+             * publisher -- or, on an unauthenticated channel, anyone who can
+             * reach the listen port -- could embed newline/control/ANSI
+             * sequences to forge or corrupt error-log lines. */
+            safe = ap_escape_logitem(pool, msg_str);
+
+            /* Phase 4: when a secret is set, verify the MAC and freshness
+             * BEFORE logging or acting on the payload, so forged/tampered
+             * content is dropped (throttled) and never reaches the INFO log.
+             * msg_ts (microseconds) is the signed timestamp, used below for the
+             * per-url monotonic replay check.  Verification only matters in the
+             * active (balancer) path; with no balancer we take no action and
+             * the escaped payload is safe to log for diagnostics. */
+            if (ctx->balancer_name && ctx->has_secret) {
+                const char *reason = "?";
+                if (!nng_verify(ctx, msg_str, msg_now, &msg_ts, &reason)) {
+                    nng_log_throttled(ctx, msg_now, reason);
+                    continue;
                 }
             }
 
-            nng_free(buf, sz);
+            ap_log_error(APLOG_MARK, APLOG_INFO, 0, s,
+                         APLOGNO() "mod_proxy_nng: SUB received: %s", safe);
+
+            if (!ctx->balancer_name) {
+                continue;
+            }
+
+            /* Phase 2/3: carries a routable url= -> add the backend (or
+             * refresh last-seen / re-enable if previously evicted). */
+            if (nng_parse_url(msg_str, url, sizeof(url))) {
+                nng_handle_announce(ctx, pool, url, msg_now, msg_ts);
+            }
         }
 
         /* Phase 3: evict backends that stopped announcing.  Throttle the scan
@@ -959,7 +1012,7 @@ static void nng_cb_stopping(nng_ctx_t *ctx)
         nng_close(ctx->sock);
         ctx->opened = 0;
         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, ctx->s,
-                     "mod_proxy_nng: socket closed");
+                     APLOGNO() "mod_proxy_nng: socket closed");
     }
 }
 
@@ -1006,14 +1059,14 @@ static int nng_post_config(apr_pool_t *pconf, apr_pool_t *plog,
         APR_RETRIEVE_OPTIONAL_FN(ap_watchdog_register_callback);
     if (!nng_get_instance || !nng_register_callback) {
         ap_log_error(APLOG_MARK, APLOG_CRIT, 0, main_s,
-                     "mod_proxy_nng: mod_watchdog is required");
+                     APLOGNO() "mod_proxy_nng: mod_watchdog is required");
         return !OK;
     }
 
     rv = nng_get_instance(&nng_watchdog, NNG_WATCHDOG_NAME, 0, 1, pconf);
     if (rv) {
         ap_log_error(APLOG_MARK, APLOG_CRIT, rv, main_s,
-                     "mod_proxy_nng: failed to create watchdog instance (%s)",
+                     APLOGNO() "mod_proxy_nng: failed to create watchdog instance (%s)",
                      NNG_WATCHDOG_NAME);
         return !OK;
     }
@@ -1033,7 +1086,7 @@ static int nng_post_config(apr_pool_t *pconf, apr_pool_t *plog,
                                    nng_watchdog_callback);
         if (rv) {
             ap_log_error(APLOG_MARK, APLOG_CRIT, rv, s,
-                         "mod_proxy_nng: failed to register watchdog callback");
+                         APLOGNO() "mod_proxy_nng: failed to register watchdog callback");
             return !OK;
         }
     }
