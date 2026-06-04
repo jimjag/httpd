@@ -12,12 +12,17 @@ same instance, driven by the mod_watchdog singleton thread.
   Phase 3: when a backend stops announcing for longer than ProxyNngTimeout, the
            proxy disables it (out of rotation); a later announcement re-enables
            it.
+  Phase 4: announcements are authenticated with a pre-shared secret
+           (ProxyNngSecret); the proxy drops any that aren't validly signed and
+           fresh. A second backend dials the same port with the WRONG secret
+           and a decoy URL -- it must be rejected and never added.
 
 The config sets ProxyNngTimeout=1s on the proxy and ProxyNngInterval=4s on the
-backend, so each cycle is: announce (add/enable) -> stale after ~1s (evict) ->
-next announce (re-enable). We assert that whole lifecycle from the error_log
-(the reliable signal; cf. t/modules/heartbeat.t's log-scan approach), and
-separately prove the member serves traffic while enabled.
+legit backend, so each cycle is: announce (add/enable) -> stale after ~1s
+(evict) -> next announce (re-enable). We assert that whole lifecycle from the
+error_log (the reliable signal; cf. t/modules/heartbeat.t's log-scan approach),
+prove the member serves traffic while enabled, and assert the wrong-secret
+backend is rejected.
 
 mod_watchdog runs its singleton in a child process, so (like heartbeat.t) this
 is skipped under the prefork MPM.
@@ -82,3 +87,12 @@ def test_proxy_nng(http):
     reenabled = [ln for ln in loglines if "re-enabled backend" in ln]
     assert evicted, "backend should have been evicted after the announce gap"
     assert reenabled, "backend should have been re-enabled on the next announce"
+
+    # Phase 4: the rogue backend (wrong secret, decoy URL) must be rejected --
+    # its announcements dropped and its url NEVER added as a balancer member.
+    assert not [ln for ln in loglines if "http://127.0.0.1:1" in ln
+                and "added backend" in ln], (
+        "decoy backend with wrong secret must never be added")
+    assert [ln for ln in loglines
+            if "unauthenticated/invalid announcement" in ln], (
+        "proxy should log dropping the wrong-secret announcements")

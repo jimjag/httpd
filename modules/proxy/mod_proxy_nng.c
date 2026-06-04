@@ -40,14 +40,26 @@
  * manager flow.  The backend advertises its routable URL via ProxyNngAdvertise;
  * the proxy names the target balancer via ProxyNngBalancer.
  *
- * Phase 3 (this file): the inverse -- when a backend STOPS announcing for longer
- * than ProxyNngTimeout, the proxy takes it out of rotation by setting the
- * worker's DISABLED flag (again via balancer_manage), and re-enables it if the
- * backend starts announcing again.  This gives the cluster automatic liveness
- * without operator action.  The timeout is a config directive (0 = disabled =
- * pure Phase-2 behavior); a live-tunable timeout is a future extension.  All of
- * this runs in the watchdog singleton that already owns the SUB socket, so the
- * per-URL last-seen table lives in this process's ctx -- no shared memory.
+ * Phase 3: the inverse -- when a backend STOPS announcing for longer than
+ * ProxyNngTimeout, the proxy takes it out of rotation by setting the worker's
+ * DISABLED flag (again via balancer_manage), and re-enables it if the backend
+ * starts announcing again.  This gives the cluster automatic liveness without
+ * operator action.  The timeout is a config directive (0 = disabled = pure
+ * Phase-2 behavior).  All of this runs in the watchdog singleton that already
+ * owns the SUB socket, so the per-URL last-seen table lives in this process's
+ * ctx -- no shared memory.
+ *
+ * Phase 4 (this file): authenticate the channel.  Without this, anyone who can
+ * reach the SUB's listen port can announce an arbitrary url and the proxy will
+ * route real client traffic to it (SSRF / hijack).  With a pre-shared cluster
+ * secret (ProxyNngSecret) on both ends, the PUB appends a keyed MAC
+ * (SipHash-2-4 via APR-util -- the same primitive mod_session_crypto uses) plus
+ * a timestamp; the SUB recomputes the MAC and checks timestamp freshness
+ * (anti-replay), dropping any forged, tampered, or stale message before it is
+ * parsed/acted on.  Authentication is opt-in: with no secret the channel behaves
+ * as before but logs a one-time "UNAUTHENTICATED" warning.  We authenticate, not
+ * encrypt -- the payload (backend URLs) is not secret; nng TLS (tls+tcp://) is a
+ * separate, orthogonal layer for a future phase if confidentiality is needed.
  *
  * The background work runs on a mod_watchdog SINGLETON instance (exactly one
  * child process owns the socket), mirroring mod_proxy_hcheck.c.  That child has
@@ -69,6 +81,8 @@
 #include "apr_time.h"
 #include "apr_hash.h"
 #include "apr_uri.h"
+#include "apr_siphash.h"
+#include "apr_md5.h"
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>             /* for getpid() */
@@ -113,7 +127,18 @@ typedef struct {
     apr_uint64_t         seq;          /* announcement counter */
     apr_hash_t          *seen;         /* SUB: url -> nng_member_t* */
     APR_OPTIONAL_FN_TYPE(balancer_manage) *manage_fn; /* SUB: cached, lazy */
+    /* Phase 4: channel authentication. */
+    int                  has_secret;   /* ProxyNngSecret was set */
+    unsigned char        mac_key[APR_MD5_DIGESTSIZE]; /* siphash key (16 bytes) */
+    apr_int64_t          max_skew;     /* ProxyNngMaxSkew, seconds (replay window) */
+    apr_uint64_t         reject_count; /* SUB: dropped-since-last-log counter */
+    apr_time_t           last_reject_log; /* SUB: reject-log rate limiter */
+    int                  warned_insecure; /* SUB: emitted the one-time warning */
 } nng_ctx_t;
+
+/* SipHash-2-4 output is 8 bytes -> 16 hex chars (+ NUL). */
+#define NNG_MAC_HEXLEN  (APR_SIPHASH_DSIZE * 2)
+#define NNG_MAXSKEW_DEFAULT  30   /* seconds, floor; raised to 2x interval */
 
 /* Process-wide watchdog handle, like mod_proxy_hcheck's static watchdog. */
 static ap_watchdog_t *nng_watchdog;
@@ -259,6 +284,44 @@ static const char *nng_set_timeout(cmd_parms *cmd, void *dummy,
     return NULL;
 }
 
+static const char *nng_set_secret(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    nng_ctx_t *ctx = ap_get_module_config(cmd->server->module_config,
+                                          &proxy_nng_module);
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_HTACCESS);
+    if (err) {
+        return err;
+    }
+    if (!*arg) {
+        return "ProxyNngSecret: empty secret";
+    }
+    /* Derive a 16-byte SipHash key from the passphrase.  This is key
+     * derivation (spreading the shared secret to the key size both ends use),
+     * not message hashing, so MD5 is fine here -- same approach as
+     * mod_session_crypto.c's compute_auth(). */
+    apr_md5(ctx->mac_key, arg, strlen(arg));
+    ctx->has_secret = 1;
+    return NULL;
+}
+
+static const char *nng_set_maxskew(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    nng_ctx_t *ctx = ap_get_module_config(cmd->server->module_config,
+                                          &proxy_nng_module);
+    apr_interval_time_t iv;
+    apr_status_t rv;
+    const char *err = ap_check_cmd_context(cmd, NOT_IN_HTACCESS);
+    if (err) {
+        return err;
+    }
+    rv = ap_timeout_parameter_parse(arg, &iv, "s");
+    if (rv != APR_SUCCESS || iv <= 0) {
+        return "ProxyNngMaxSkew must be a positive time (replay window)";
+    }
+    ctx->max_skew = apr_time_sec(iv);
+    return NULL;
+}
+
 static const command_rec nng_cmds[] = {
     AP_INIT_TAKE1("ProxyNngSubscribe", nng_set_sub_url, NULL, RSRC_CONF,
                   "nng SUB listen URL on the reverse proxy, "
@@ -277,6 +340,14 @@ static const command_rec nng_cmds[] = {
     AP_INIT_TAKE1("ProxyNngTimeout", nng_set_timeout, NULL, RSRC_CONF,
                   "proxy: seconds without an announcement after which a backend "
                   "is disabled (taken out of rotation); 0 disables eviction"),
+    AP_INIT_TAKE1("ProxyNngSecret", nng_set_secret, NULL, RSRC_CONF,
+                  "pre-shared cluster secret; set on both proxy and backends to "
+                  "authenticate announcements (SipHash MAC). Keep the conf file "
+                  "readable only by the server user."),
+    AP_INIT_TAKE1("ProxyNngMaxSkew", nng_set_maxskew, NULL, RSRC_CONF,
+                  "proxy: max allowed seconds between an announcement's timestamp "
+                  "and now (anti-replay window; requires NTP-synced clocks). "
+                  "Default max(30s, 2x interval)."),
     { NULL }
 };
 
@@ -315,6 +386,16 @@ static void nng_cb_starting(nng_ctx_t *ctx)
         ctx->opened = 1;
         ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
                      "mod_proxy_nng: SUB listening on %s", ctx->sub_url);
+        /* Phase 4: warn once if we'll add members from an unauthenticated
+         * channel (anyone who can reach this port could announce a backend). */
+        if (ctx->balancer_name && !ctx->has_secret && !ctx->warned_insecure) {
+            ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
+                         "mod_proxy_nng: announcement channel on %s is "
+                         "UNAUTHENTICATED; set ProxyNngSecret on the proxy and "
+                         "all backends to require signed announcements",
+                         ctx->sub_url);
+            ctx->warned_insecure = 1;
+        }
     }
     else if (ctx->role == NNG_ROLE_PUB) {
         if ((rv = nng_pub0_open(&ctx->sock)) != 0) {
@@ -590,6 +671,106 @@ static int nng_parse_url(const char *msg, char *buf, apr_size_t buflen)
     return 0;
 }
 
+/* ----- Phase 4: channel authentication (SipHash MAC + timestamp) ----- */
+
+/* Constant-time buffer compare (time depends only on size, not contents) --
+ * avoids a timing oracle on the MAC.  apr_crypto_equals() would do this but is
+ * gated behind APU_HAVE_CRYPTO, which isn't always built; this is the same
+ * branchless idiom. */
+static int nng_const_time_eq(const void *a, const void *b, apr_size_t n)
+{
+    const unsigned char *p1 = a, *p2 = b;
+    unsigned char diff = 0;
+    apr_size_t i;
+    for (i = 0; i < n; i++) {
+        diff |= p1[i] ^ p2[i];
+    }
+    return diff == 0;
+}
+
+/* Hex-encode the SipHash-2-4 MAC of [base, base+len) into out (NNG_MAC_HEXLEN+1
+ * bytes). */
+static void nng_mac_hex(const nng_ctx_t *ctx, const char *base,
+                        apr_size_t len, char *out)
+{
+    unsigned char mac[APR_SIPHASH_DSIZE];
+    apr_siphash24_auth(mac, base, len, ctx->mac_key);
+    ap_bin2hex(mac, sizeof(mac), out);   /* writes NNG_MAC_HEXLEN + NUL */
+}
+
+/* PUB: return "<base> mac=<hex>" (signed) when a secret is set, else base. */
+static const char *nng_sign(nng_ctx_t *ctx, apr_pool_t *pool, const char *base)
+{
+    char hex[NNG_MAC_HEXLEN + 1];
+
+    if (!ctx->has_secret) {
+        return base;
+    }
+    nng_mac_hex(ctx, base, strlen(base), hex);
+    return apr_psprintf(pool, "%s mac=%s", base, hex);
+}
+
+/*
+ * SUB: verify a received, NUL-terminated message.  Returns 1 if the MAC matches
+ * the pre-shared key AND the ts= timestamp is within ctx->max_skew of now.
+ * Only called when ctx->has_secret.  Constant-time MAC compare via
+ * apr_crypto_equals.  reason (out) is set to a short cause string on failure.
+ */
+static int nng_verify(nng_ctx_t *ctx, const char *msg, apr_time_t now,
+                      const char **reason)
+{
+    const char *macp = NULL, *p, *tsp;
+    char expected[NNG_MAC_HEXLEN + 1];
+    apr_size_t prefix_len;
+    apr_int64_t ts, skew, delta;
+
+    /* Locate the last " mac=" -- the MAC covers everything before it. */
+    for (p = msg; (p = strstr(p, " mac=")) != NULL; p += 5) {
+        macp = p;
+    }
+    if (!macp) {
+        *reason = "no mac";
+        return 0;
+    }
+    /* The received MAC must be exactly NNG_MAC_HEXLEN hex chars. */
+    if (strlen(macp + 5) != NNG_MAC_HEXLEN) {
+        *reason = "bad mac length";
+        return 0;
+    }
+
+    prefix_len = (apr_size_t)(macp - msg);
+    nng_mac_hex(ctx, msg, prefix_len, expected);
+    if (!nng_const_time_eq(expected, macp + 5, NNG_MAC_HEXLEN)) {
+        *reason = "mac mismatch";
+        return 0;
+    }
+
+    /* Anti-replay: ts= must be present and within the freshness window. */
+    tsp = NULL;
+    for (p = msg; (p = strstr(p, "ts=")) != NULL && p < macp; p += 3) {
+        /* token-start: beginning of message or preceded by a space */
+        if (p == msg || *(p - 1) == ' ') {
+            tsp = p;
+        }
+    }
+    if (!tsp) {
+        *reason = "no ts";
+        return 0;
+    }
+    ts = apr_atoi64(tsp + 3);
+    skew = ctx->max_skew > 0 ? ctx->max_skew : NNG_MAXSKEW_DEFAULT;
+    delta = (apr_int64_t)apr_time_sec(now) - ts;
+    if (delta < 0) {
+        delta = -delta;
+    }
+    if (delta > skew) {
+        *reason = "stale timestamp";
+        return 0;
+    }
+
+    return 1;
+}
+
 /* RUNNING: PUB sends a throttled heartbeat; SUB drains its receive queue. */
 static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
 {
@@ -605,24 +786,30 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
         if (now >= ctx->last_publish + ctx->interval) {
             const char *host = ctx->s->server_hostname
                                    ? ctx->s->server_hostname : "(unknown)";
-            char *msg;
+            const char *msg;
+            char *base;
             /* Carry the routable URL so the proxy can add us as a member.
              * Without ProxyNngAdvertise, fall back to the Phase-1 payload
-             * (channel proof only; the SUB just logs it). */
+             * (channel proof only; the SUB just logs it).  ts= is the signing
+             * timestamp (Phase 4 anti-replay); it is harmless when unsigned. */
             if (ctx->advertise_url) {
-                msg = apr_psprintf(pool,
+                base = apr_psprintf(pool,
                             "ANNOUNCE url=%s host=%s pid=%" APR_PID_T_FMT
-                            " seq=%" APR_UINT64_T_FMT,
-                            ctx->advertise_url, host, getpid(), ctx->seq++);
+                            " seq=%" APR_UINT64_T_FMT " ts=%" APR_INT64_T_FMT,
+                            ctx->advertise_url, host, getpid(), ctx->seq++,
+                            (apr_int64_t)apr_time_sec(now));
             }
             else {
-                msg = apr_psprintf(pool,
+                base = apr_psprintf(pool,
                             "ANNOUNCE host=%s pid=%" APR_PID_T_FMT
-                            " seq=%" APR_UINT64_T_FMT,
-                            host, getpid(), ctx->seq++);
+                            " seq=%" APR_UINT64_T_FMT " ts=%" APR_INT64_T_FMT,
+                            host, getpid(), ctx->seq++,
+                            (apr_int64_t)apr_time_sec(now));
             }
+            /* Phase 4: append a keyed MAC when a shared secret is configured. */
+            msg = nng_sign(ctx, pool, base);
             /* nng copies the data on send; msg lives in the temp pool. */
-            if ((rv = nng_send(ctx->sock, msg, strlen(msg) + 1, 0)) != 0) {
+            if ((rv = nng_send(ctx->sock, (void *)msg, strlen(msg) + 1, 0)) != 0) {
                 ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
                              "mod_proxy_nng: nng_send failed: %s",
                              nng_strerror(rv));
@@ -652,13 +839,37 @@ static void nng_cb_running(nng_ctx_t *ctx, apr_pool_t *pool)
                          "mod_proxy_nng: SUB received: %.*s",
                          (int)sz, buf ? buf : "");
 
-            /* Phase 2/3: if a target balancer is configured and the message
-             * carries a routable url=, add the backend (or refresh its
-             * last-seen / re-enable it if previously evicted). */
             if (ctx->balancer_name && buf && sz > 0) {
                 char url[512];
-                /* ensure NUL-terminated for the parser */
+                /* ensure NUL-terminated for parsing/verification */
                 buf[sz - 1] = '\0';
+
+                /* Phase 4: when a secret is set, drop any message that isn't
+                 * authentically signed and fresh -- BEFORE parsing/acting on
+                 * its url.  Rate-limit the rejection log to avoid flooding. */
+                if (ctx->has_secret) {
+                    const char *reason = "?";
+                    if (!nng_verify(ctx, buf, apr_time_now(), &reason)) {
+                        apr_time_t tnow = apr_time_now();
+                        ctx->reject_count++;
+                        if (ctx->last_reject_log == 0
+                            || tnow - ctx->last_reject_log
+                                   >= apr_time_from_sec(1)) {
+                            ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
+                                         "mod_proxy_nng: dropped %"
+                                         APR_UINT64_T_FMT " unauthenticated/"
+                                         "invalid announcement(s) (last: %s)",
+                                         ctx->reject_count, reason);
+                            ctx->reject_count = 0;
+                            ctx->last_reject_log = tnow;
+                        }
+                        nng_free(buf, sz);
+                        continue;
+                    }
+                }
+
+                /* Phase 2/3: carries a routable url= -> add the backend (or
+                 * refresh last-seen / re-enable if previously evicted). */
                 if (nng_parse_url(buf, url, sizeof(url))) {
                     nng_handle_announce(ctx, pool, url, apr_time_now());
                 }

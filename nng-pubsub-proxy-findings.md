@@ -502,6 +502,70 @@ Status: **Phase 3 complete.** Eviction is the symmetric inverse of the Phase-2
 add, via the same balancer_manage path; member-removal-from-slotmem remains a
 non-feature of httpd, so "evict" = disable (reversible).
 
+## 12. Phase 4 — authenticate the announcement channel (DONE)
+
+Before Phase 4 the channel was unauthenticated: anyone who could reach the SUB's
+listen port could announce an arbitrary `url=` and the proxy would route real
+client traffic to it (SSRF / hijack / exfiltration). Phase 4 closes this with a
+pre-shared cluster secret.
+
+### Approach: authenticate, don't encrypt (user-confirmed)
+A keyed MAC + timestamp on each message. The payload (backend URLs) isn't
+secret; the threat is *unauthorized injection*, which integrity+authenticity
+closes. nng TLS (`tls+tcp://`, needs nng built with mbedTLS + certs) is an
+orthogonal transport layer documented for a future phase — it secures the pipe
+but wouldn't stop an authorized TLS peer from announcing a bad URL.
+
+### Primitive: SipHash-2-4 (in-tree, no new dependency)
+Direct precedent: `mod_session_crypto.c:176` derives a 16-byte siphash key from
+a passphrase via MD5 then calls `apr_siphash24_auth` — Phase 4 does the same.
+- `apr_md5(secret)` → 16-byte key (this is KDF, not message hashing, so MD5 is
+  fine).
+- `apr_siphash24_auth` → 8-byte MAC, `ap_bin2hex` → 16 hex chars on the wire.
+- Constant-time compare: `apr_crypto_equals` turned out to be gated behind
+  `APU_HAVE_CRYPTO` (not enabled in the local apr-util), so a tiny self-contained
+  branchless `nng_const_time_eq` is used instead (same XOR-accumulate idiom).
+
+### Wire format
+```
+ANNOUNCE url=… host=… pid=… seq=… ts=<unix-sec> mac=<16-hex>
+```
+`mac` is the SipHash of the message prefix up to (not including) `" mac="`,
+computed over `strlen` (no trailing NUL) on both sides. SUB verifies **before**
+`nng_parse_url`, so a bad-MAC message never gets its URL acted on. Anti-replay:
+reject if `|now - ts| > max_skew` (`ProxyNngMaxSkew`, default max(30s, 2×interval);
+requires NTP-synced clocks across hosts). `seq` is NOT a replay counter (resets
+on backend restart) — the signed `ts` is.
+
+### Directives
+- `ProxyNngSecret <passphrase>` — on both PUB and SUB. PUB signs only if set; SUB
+  requires a valid+fresh MAC only if set. Mismatched secrets ⇒ all dropped
+  (logged) — a documented footgun that looks like an outage.
+- `ProxyNngMaxSkew <secs>` — optional replay window.
+
+### Compatibility (fail-open + warn, user-confirmed)
+No secret on the proxy ⇒ Phase 1–3 behavior, plus a one-time startup WARNING
+that the channel is UNAUTHENTICATED. Security is opt-in. Rejections are
+rate-limited (~1/s) with a count + reason to avoid log flooding under a forged
+flood (each check is ~tens of ns).
+
+### End-to-end test — PASSING
+Two backends dial the **same** proxy port: PUB #1 with the matching secret +
+real URL, PUB #2 with a **wrong** secret + decoy `http://127.0.0.1:1`. Asserts:
+the legit add/evict/re-enable lifecycle still works and `/nng` serves; the decoy
+is **never** added; and the proxy logs dropping the wrong-secret announcements.
+Log confirms:
+```
+SUB received: ANNOUNCE url=… ts=1780587143 mac=ab902d4fad6589f7
+added backend http://localhost:8529 to balancer://nng        (legit)
+dropped 1 unauthenticated/invalid announcement(s) (last: mac mismatch)   (rogue)
+# http://127.0.0.1:1 never appears in an "added backend" line
+```
+
+Status: **Phase 4 complete.** Channel authenticated against forgery, tampering,
+and replay with an in-tree MAC; transport encryption (nng TLS) remains an
+optional future layer.
+
 ## 8. References
 - nng PUB/SUB getting started: https://nanomsg.org/gettingstarted/nng/pubsub.html
 - nng_pub(7): https://nng.nanomsg.org/man/v1.10.0/nng_pub.7.html

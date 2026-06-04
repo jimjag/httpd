@@ -11,13 +11,20 @@
 #
 # Phase 1 proved the channel (the SUB logs each ANNOUNCE).  Phase 2 adds the
 # announcing backend as a member of balancer://nng and enables it, so a request
-# to /nng on the proxy routes to the dynamically-added backend.
+# to /nng on the proxy routes to the dynamically-added backend.  Phase 3 evicts
+# a backend that stops announcing.  Phase 4 authenticates the channel with a
+# pre-shared secret (ProxyNngSecret): the proxy drops any announcement that
+# isn't validly signed and fresh.
 #
 # Everything runs in this single test instance over loopback TCP, driven by the
 # mod_watchdog singleton thread.  The backend advertises the MAIN server's
 # origin (@SERVERNAME@:@PORT@), which serves the framework's index.html
 # ("welcome to <servername>:<port>"); routing /nng/index.html through the proxy
 # must return that body, proving the added member serves traffic.
+#
+# Two backends dial the SAME proxy port: one with the matching secret (must be
+# added + serve), and a decoy with a WRONG secret advertising an unroutable URL
+# (must be rejected and never added) -- proving authentication works.
 
 <IfModule mod_proxy_nng.c>
 <IfModule mod_proxy_balancer.c>
@@ -33,6 +40,10 @@
     ProxyNngSubscribe tcp://127.0.0.1:${NNG_PORT}
     ProxyNngBalancer  nng
 
+    # Phase 4: require announcements to be signed with this shared secret.
+    # Unsigned / wrong-secret / stale messages are dropped before being acted on.
+    ProxyNngSecret    nng-test-shared-secret
+
     # Phase 3: disable a backend that hasn't announced in 1s.  Combined with the
     # backend's 4s announce interval below, this guarantees an eviction gap
     # (announce -> stale after ~1s -> evicted -> next announce re-enables).
@@ -44,16 +55,27 @@
     </Proxy>
     ProxyPass /nng balancer://nng
 
-    # Backend balancer == PUBlisher: dial the proxy, advertise its routable
-    # origin (the main server here), and announce every 1s.
+    # Legit backend == PUBlisher: dial the proxy, advertise its routable origin
+    # (the main server here), sign with the MATCHING secret, announce every 4s.
     <VirtualHost proxy_nng>
         ProxyNngPublish   tcp://127.0.0.1:${NNG_PORT}
         ProxyNngAdvertise http://@SERVERNAME@:@PORT@
+        ProxyNngSecret    nng-test-shared-secret
         # Announce every 4s.  With the proxy's 1s ProxyNngTimeout this leaves a
         # ~3s window each cycle where the member is stale and gets evicted, then
         # the next announcement re-enables it -- exercising the full Phase-3
         # add -> evict -> re-enable lifecycle in a single-instance test.
         ProxyNngInterval  4
+    </VirtualHost>
+
+    # Phase 4 negative case: a rogue backend dialing the SAME proxy port with a
+    # WRONG secret, advertising an unroutable decoy URL.  Its announcements must
+    # be rejected (bad MAC) and the decoy must NEVER become a balancer member.
+    <VirtualHost proxy_nng_bad>
+        ProxyNngPublish   tcp://127.0.0.1:${NNG_PORT}
+        ProxyNngAdvertise http://127.0.0.1:1
+        ProxyNngSecret    wrong-secret
+        ProxyNngInterval  1
     </VirtualHost>
 
 </IfModule>
