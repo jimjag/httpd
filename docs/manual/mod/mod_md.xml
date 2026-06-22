@@ -124,7 +124,7 @@ Protocols h2 http/1.1 acme-tls/1
         </highlight>
         <p>
             And the `tls-alpn-01` challenge type is available.
-	</p>
+        </p>
         </note>
 
         <note><title>Wildcard Certificates</title>
@@ -184,17 +184,18 @@ MDChallengeDns01 /usr/bin/acme-setup-dns
                 If there is an error with an MD it will be shown here as well. This let's 
                 you assess problems without digging through your server logs.
             </p><p>
-                There is also a new 'md-status' handler available to give you the MD information 
-                from 'server-status' in JSON format. You configure it as
+                There is also a new '<code>md-status</code>' handler available to give you the MD information 
+                from '<code>server-status</code>' in JSON format. You configure it as
             </p>
             <highlight language="config">
 &lt;Location "/md-status">
   SetHandler md-status
+  Require host example.com
 &lt;/Location>
             </highlight>
             <p>
-                on your server. As with 'server-status' you will want to add 
-                authorization for this. 
+                on your server. As with '<code>server-status</code>' you <strong>must</strong> protect
+                the <code>md-status</code> output from public view using authorization restrictions (such as <module>mod_authz_host</module>). 
             </p><p>
                 If you just want to check the JSON status of a specific domain, simply append 
                 that to your status url:
@@ -249,7 +250,7 @@ MDChallengeDns01 /usr/bin/acme-setup-dns
 &lt;/MDomain>            
             </highlight>
             <p>
-                and use the 'server-status' and/or <directive module="mod_md">MDMessageCmd</directive> to see how it operates. You will
+                and use the '<code>server-status</code>' and/or <directive module="mod_md">MDMessageCmd</directive> to see how it operates. You will
                 see if Stapling information is there, how long it is valid, from where it came and
                 when it will be refreshed.
             </p><p>
@@ -537,9 +538,39 @@ MDCertificateAuthority https://acme-staging-v02.api.letsencrypt.org/directory
         <contextlist>
             <context>server config</context>
         </contextlist>
+        <compatibility>Since version 2.4.69, a proxy can be configured separately for each MDomain.</compatibility>
         <usage>
-            <p>Use a http proxy to connect to the <directive module="mod_md">MDCertificateAuthority</directive>. Define this
-            if your webserver can only reach the internet with a forward proxy.
+            <p>
+                Use the given http forward proxy URL to connect to the <directive module="mod_md">MDCertificateAuthority</directive>.
+                Define this if your webserver can only reach the internet with a forward proxy.
+            </p>
+        </usage>
+    </directivesynopsis>
+
+    <directivesynopsis>
+        <name>MDHttpProxyCACertificateFile</name>
+        <description>Sets the root (CA) certificates to use for TLS connections to the http-proxy.</description>
+        <syntax>MDHttpProxyCACertificateFile <var>path-to-pem-file</var></syntax>
+        <default>MDHttpProxyCACertificateFile none</default>
+        <contextlist>
+            <context>server config</context>
+        </contextlist>
+        <compatibility>Available in version 2.4.69 and later</compatibility>
+        <usage>
+            <p>
+                This is used for connections to the HTTPS forward proxy (<directive module="mod_md">MDHttpProxy</directive>).
+                It is needed if the certificate of the HTTPS proxy cannot be verified using the general CA root store.
+                This is sometimes the case in test setups or enterprise environments.
+            </p>
+            <p>
+                The certificate of the ACME server is verified with the root certificates set by
+                <directive module="mod_md">MDCACertificateFile</directive>, so you might need to use both settings.
+            </p>
+            <p>
+                Use "none" as path to disable explicitly.
+            </p>
+            <p>
+                This can be configured separately for each <directive module="mod_md">MDomain</directive>.
             </p>
         </usage>
     </directivesynopsis>
@@ -1111,19 +1142,22 @@ MDMessageCmd /etc/apache/md-message
 
     <directivesynopsis>
         <name>MDServerStatus</name>
-        <description>Control if Managed Domain information is added to server-status.</description>
+        <description>Control if Managed Domain information is added to <code>server-status</code>.</description>
         <syntax>MDServerStatus on|off</syntax>
-        <default>MDServerStatus on</default>
+        <default>MDServerStatus off</default>
         <contextlist>
             <context>server config</context>
         </contextlist>
         <usage>
             <p>
-                Apaches 'server-status' handler allows you configure a resource to monitor
-                what is going on. This includes now a section listing all Managed Domains
-                with the DNS names, renewal status, lifetimes and main properties.
+                If enabled, adds a section to the
+                <module>mod_status</module> '<code>server-status</code>' handler
+                output which lists all Managed Domains with the DNS
+                names, renewal status, lifetimes and main properties.
             </p><p>
-                You can switch that off using this directive.
+                As with '<code>md-status</code>', the '<code>server-status</code>' output
+                <strong>must</strong> be protected from public view
+                using appropriate authorization restrictions.
             </p>
         </usage>
     </directivesynopsis>
@@ -1138,7 +1172,7 @@ MDMessageCmd /etc/apache/md-message
         </contextlist>
         <usage>
             <p>
-                This is part of the 'server-status' HTML user interface and has nothing to 
+                This is part of the '<code>server-status</code>' HTML user interface and has nothing to 
                 do with the core functioning itself. It defines the link offered on that 
                 page for easy checking of a certificate monitor. The SHA256 fingerprint 
                 of the certificate is appended to the configured url.
@@ -1618,6 +1652,7 @@ MDMessageCmd /etc/apache/md-message
         <contextlist>
             <context>server config</context>
         </contextlist>
+        <compatibility>Since version 2.4.69, this can be configured separately for each MDomain.</compatibility>
         <usage>
             <p>
                 This is mainly used in test setups where the module needs to

@@ -30,6 +30,8 @@
 <a href="../es/mod/event.html" hreflang="es" rel="alternate" title="Espa&ntilde;ol">&nbsp;es&nbsp;</a> |
 <a href="../fr/mod/event.html" title="Fran&ccedil;ais">&nbsp;fr&nbsp;</a></p>
 </div>
+<div class="outofdate">Cette traduction peut &ecirc;tre p&eacute;rim&eacute;e. V&eacute;rifiez la version
+            anglaise pour les changements r&eacute;cents.</div>
 <table class="module"><tr><th><a href="module-dict.html#Description">Description:</a></th><td>Une variante du MPM <code class="module"><a href="../mod/worker.html">worker</a></code> con&ccedil;ue pour ne
 mobiliser des threads que pour les connexions en cours de traitement</td></tr>
 <tr><th><a href="module-dict.html#Status">Statut:</a></th><td>MPM</td></tr>
@@ -103,7 +105,7 @@ propose le MPM <code class="module"><a href="../mod/worker.html">worker</a></cod
     
     <p>Ce module MPM a &eacute;t&eacute; con&ccedil;u &agrave; l'origine pour r&eacute;soudre le "probl&egrave;me keep
     alive" de HTTP. Lorsqu'un client a effectu&eacute; une premi&egrave;re requ&ecirc;te, il peut
-    garder la connexion ouverte et envoyer les requ&ecirc;tes suivante en utilisant le
+    garder la connexion ouverte et envoyer les requ&ecirc;tes suivantes en utilisant le
     m&ecirc;me socket, ce qui diminue consid&eacute;rablement la charge qui aurait &eacute;t&eacute;
     induite par la cr&eacute;ation de nouvelles connexions TCP. Cependant, le
     fonctionnement du serveur HTTP Apache impose de r&eacute;server un couple processus
