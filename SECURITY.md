@@ -26,7 +26,7 @@ Vulnerabilities](http://httpd.apache.org/security/vulnerabilities_24.html)
 
 If an issue is reported against an aspect of the security model which
 is not documented here, it MUST be accompanied by a clear description
-of that aspect the model, showing why a trust boundary exists and how
+of that aspect of the model, showing why a trust boundary exists and how
 it is violated. It is helpful to use references to vulnerabilities
 previously disclosed by this project, the httpd documentation
 (see docs/manual), and to demonstrate common usage patterns.
@@ -41,6 +41,12 @@ Any security vulnerability SHOULD be reproducible:
 
 Issues which are reproducible only using instrumented builds (such as
 ASAN, or under valgrind) should be clearly explained as such.
+
+Issues which depend on a specially crafted server configuration MUST
+include references (such as public documentation) which show why that
+is a configuration that would arise naturally in common deployments.
+Special considerations also apply to any issues requiring `.htaccess`
+files, per the [Delegated Configuration](#delegated-configuration) section.
 
 ## Basic model
 
@@ -75,7 +81,7 @@ configurable limits; e.g. LimitRequestFields limits the RAM
 consumption by HTTP headers, LimitXMLRequestBody limits the RAM
 consumption by parsing XML request documents.
 
-Example vulnerabilities which violated the model: CVE-2004-0942
+Example vulnerabilities which violated the model: CVE-2004-0942.
 
 ## Privilege separation on Unix platforms
 
@@ -101,7 +107,7 @@ model.
 Example vulnerabilities which violated the model: CVE-2007-3304,
 CVE-2012-0031.
 
-## Delegated Configuration 
+## Delegated Configuration
 
 Server configuration can be delegated to trusted local site authors by
 allowing use of .htaccess files in some configurations (see
@@ -110,10 +116,17 @@ gain a significant degree of control over, and access to, the server
 at run-time:
 
 * site authors are trusted to not attack the server with malformed or
-  malicious .htaccess files (for example, files of excessive size).
+  malicious .htaccess files
 
 * site authors gain access to some data (such as files or the
   environment) which is otherwise restricted.
+
+Examples of malicious `.htaccess` files include, but are not limited
+to:
+
+* configuration files of excessive size
+* configurations using deliberately constructed regular expressions
+  which are expensive to evaluate
 
 In configurations supporting in-process scripting language interpreters
 which are not sandboxed, such as `mod_lua` or `mod_php`,
