@@ -496,12 +496,14 @@ boolean expression is true</td></tr>
 <tr><td><a href="mod_ssl.html#sslrequiressl">SSLRequireSSL</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
 <tr><td colspan="2" class="descr">Deny access when SSL is not used for the
 HTTP request</td></tr>
-<tr class="odd"><td><a href="mod_ssl.html#sslusername">SSLUserName</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
-<tr class="odd"><td colspan="2" class="descr">Variable name to determine user name</td></tr>
-<tr><td><a href="mod_ssl.html#sslverifyclient">SSLVerifyClient</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
-<tr><td colspan="2" class="descr">Type of Client Certificate verification</td></tr>
-<tr class="odd"><td><a href="mod_ssl.html#sslverifydepth">SSLVerifyDepth</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
-<tr class="odd"><td colspan="2" class="descr">Maximum depth of CA Certificates in Client
+<tr class="odd"><td><a href="mod_ssl.html#ssltrusturi">SSLTrustURI</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
+<tr class="odd"><td colspan="2" class="descr">Server CA certificate store for Client Authentication</td></tr>
+<tr><td><a href="mod_ssl.html#sslusername">SSLUserName</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
+<tr><td colspan="2" class="descr">Variable name to determine user name</td></tr>
+<tr class="odd"><td><a href="mod_ssl.html#sslverifyclient">SSLVerifyClient</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
+<tr class="odd"><td colspan="2" class="descr">Type of Client Certificate verification</td></tr>
+<tr><td><a href="mod_ssl.html#sslverifydepth">SSLVerifyDepth</a></td><td class="module"><a href="mod_ssl.html">mod_ssl</a></td></tr>
+<tr><td colspan="2" class="descr">Maximum depth of CA Certificates in Client
 Certificate verification</td></tr>
 </table></div><div class="top"><a href="#page-header"><img src="../images/up.gif" alt="top"></a></div><div class="section"><h2><a name="override-fileinfo">FileInfo</a></h2>
     <p>
