@@ -65,6 +65,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="remove all compiled C-module artifacts before building (emulate make clean)",
     )
+    group.addoption(
+        "--conf",
+        action="store",
+        default=None,
+        help="path to the installed httpd.conf (for LoadModule discovery "
+        "when --apxs is not available, e.g. on Windows)",
+    )
+    group.addoption(
+        "--prefix",
+        action="store",
+        default=None,
+        help="server install prefix for resolving relative module paths "
+        "(default: derived from --conf path)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -114,6 +128,16 @@ def _resolve_paths(
         inherited_conf = sysconfdir / "httpd.conf"
         if httpd_opt is None:
             httpd_opt = str(sbindir / "httpd")
+
+    conf_opt = config.getoption("--conf")
+    prefix_opt = config.getoption("--prefix")
+    if conf_opt is not None and inherited_conf is None:
+        inherited_conf = Path(conf_opt)
+    if prefix_opt is not None:
+        install_prefix = Path(prefix_opt)
+    elif inherited_conf is not None and install_prefix is None:
+        install_prefix = inherited_conf.parent.parent
+
     if httpd_opt is None:
         raise _NoServerError("must pass --httpd or --apxs")
     return Path(httpd_opt), apxs, inherited_conf, install_prefix, defines
@@ -237,6 +261,14 @@ def framework(request: pytest.FixtureRequest):
         cmodule_loads, _skipped = compile_all(
             cmodules_dir, apxs, info, defines=["APACHE2", "APACHE2_4", *defines]
         )
+    else:
+        from apache_pytest.cmodules import discover
+        modules_dir = (install_prefix / "modules") if install_prefix else httpd.parent
+        cmods, _skipped = discover(REPO_ROOT / "c-modules", info)
+        for mod in cmods:
+            so = modules_dir / f"mod_{mod.name}.so"
+            if so.exists():
+                cmodule_loads.append((mod.symbol, so))
 
     config.generate(cmodule_loads=cmodule_loads)
 
