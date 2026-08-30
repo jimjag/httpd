@@ -21,6 +21,9 @@ class TestConf:
     def _class_scope(self, env, acme):
         acme.start(config='default')
         env.check_acme()
+        env.httpd_error_log.add_ignored_lognos(["AH10045", "AH10105"])
+        yield
+        env.httpd_error_log.remove_ignored_lognos(["AH10045", "AH10105"])
 
     @pytest.fixture(autouse=True, scope='function')
     def _method_scope(self, env, request):
@@ -771,6 +774,7 @@ class TestConf:
         assert env.a2md(["add", name]).exit_code == 0
         assert env.a2md(["update", name, "contacts", "admin@" + name]).exit_code == 0
         assert env.a2md(["update", name, "agreement", env.acme_tos]).exit_code == 0
+        MDConf(env).install()
         assert env.apache_restart() == 0, f'{env.apachectl_stderr}'
         # setup: drive it
         assert env.a2md(["drive", name]).exit_code == 0
