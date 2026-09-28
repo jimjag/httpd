@@ -24,6 +24,11 @@
 #include <apr_fnmatch.h>
 #include <apr_tables.h>
 #include <apr_uri.h>
+#include <apr_version.h>
+
+#if APR_VERSION_AT_LEAST(1,7,0)
+#include <apr_encode.h>
+#endif
 
 #if APR_HAVE_STDLIB_H
 #include <stdlib.h>
@@ -434,7 +439,7 @@ apr_status_t md_util_freplace(const char *fpath, apr_fileperms_t perms, apr_pool
                               md_util_file_cb *write_cb, void *baton)
 {
     apr_status_t rv = APR_EEXIST;
-    apr_file_t *f;
+    apr_file_t *f = NULL;
     const char *tmp;
     int i, max;
     
@@ -445,22 +450,29 @@ creat:
         ++i;
         apr_sleep(apr_time_from_msec(50));
     } 
-    if (APR_EEXIST == rv 
-        && APR_SUCCESS == (rv = apr_file_remove(tmp, p))
-        && max <= 20) {
+    /* Still there, most likely left behind by a process which was killed
+     * while writing. Remove it and try once more. Keep `rv` as the status of
+     * the last create attempt, so that the file is only written below when it
+     * was actually created. */
+    if (rv == APR_EEXIST && max <= 20
+        && apr_file_remove(tmp, p) == APR_SUCCESS) {
         max *= 2;
         goto creat;
     }
     
-    if (APR_SUCCESS == rv) {
+    if (rv == APR_SUCCESS) {
+        apr_status_t rv2;
+
         rv = write_cb(baton, f, p);
-        apr_file_close(f);
+        rv2 = apr_file_close(f);
+        if (rv == APR_SUCCESS) rv = rv2;
         
-        if (APR_SUCCESS == rv) {
+        if (rv == APR_SUCCESS) {
             rv = apr_file_rename(tmp, fpath, p);
-            if (APR_SUCCESS != rv) {
-                apr_file_remove(tmp, p);
-            }
+        }
+        /* Leave no temporary file behind, it would delay the next writer. */
+        if (rv != APR_SUCCESS) {
+            apr_file_remove(tmp, p);
         }
     }
     return rv;
@@ -504,16 +516,12 @@ apr_status_t md_text_fcreatex(const char *fpath, apr_fileperms_t perms,
     apr_file_t *f;
     
     rv = md_util_fcreatex(&f, fpath, perms, p);
-    if (APR_SUCCESS == rv) {
+    if (rv == APR_SUCCESS) {
+        apr_status_t rv2;
+
         rv = write_text((void*)text, f, p);
-        apr_file_close(f);
-        /* See <https://github.com/icing/mod_md/issues/117>: when a umask
-         * is set, files need to be assigned permissions explicitly.
-         * Otherwise, as in the issues reported, it will break our access model. */
-        rv = apr_file_perms_set(fpath, perms);
-        if (APR_STATUS_IS_ENOTIMPL(rv)) {
-            rv = APR_SUCCESS;
-        }
+        rv2 = apr_file_close(f);
+        if (rv == APR_SUCCESS) rv = rv2;
     }
     return rv;
 }
@@ -1119,7 +1127,67 @@ out:
     return rv;
 }
 
+apr_status_t md_util_exec_cmdline(apr_pool_t *p, const char *cmdline,
+                                  int *exit_code, ...)
+{
+    apr_array_header_t *argv;
+    char **cmd_argv;
+    const char *arg;
+    apr_status_t rv;
+    va_list ap;
+    int i;
+
+    *exit_code = 0;
+    rv = apr_tokenize_to_argv(cmdline, &cmd_argv, p);
+    if (rv != APR_SUCCESS) return rv;
+    if (!cmd_argv[0]) return APR_EINVAL;
+
+    /* The command line is configured by the administrator and parsed as such,
+     * the additional arguments may come from a remote party and are passed on
+     * verbatim, so that they can never become more than one argument. */
+    argv = apr_array_make(p, 8, sizeof(const char *));
+    for (i = 0; cmd_argv[i]; ++i) {
+        APR_ARRAY_PUSH(argv, const char *) = cmd_argv[i];
+    }
+    va_start(ap, exit_code);
+    while ((arg = va_arg(ap, const char *))) {
+        APR_ARRAY_PUSH(argv, const char *) = arg;
+    }
+    va_end(ap);
+    APR_ARRAY_PUSH(argv, const char *) = NULL;
+
+    return md_util_exec(p, APR_ARRAY_IDX(argv, 0, const char *),
+                        (const char * const *)argv->elts, exit_code);
+}
+
 /* base64 url encoding ****************************************************************************/
+
+#if APR_VERSION_AT_LEAST(1,7,0)
+
+apr_size_t md_util_base64url_decode(md_data_t *decoded, const char *encoded, 
+                                    apr_pool_t *pool)
+{
+    const unsigned char *data;
+    apr_size_t len = 0;
+
+    /* RELAXED, since callers rely on decoding up to the first character
+     * which is not part of the alphabet. */
+    data = apr_pdecode_base64_binary(pool, encoded, APR_ENCODE_STRING,
+                                     APR_ENCODE_RELAXED, &len);
+    decoded->data = data? (const char *)data : "";
+    decoded->len = data? len : 0;
+    return decoded->len;
+}
+
+const char *md_util_base64url_encode(const md_data_t *data, apr_pool_t *pool)
+{
+    if (!data->data || !data->len) return "";
+    return apr_pencode_base64_binary(pool, (const unsigned char *)data->data,
+                                     (apr_ssize_t)data->len,
+                                     APR_ENCODE_BASE64URL, NULL);
+}
+
+#else /* !APR_VERSION_AT_LEAST(1,7,0) */
 
 #define N6 (unsigned int)-1
 
@@ -1232,6 +1300,8 @@ const char *md_util_base64url_encode(const md_data_t *data, apr_pool_t *pool)
     *p++ = '\0';
     return (char *)enc;
 }
+
+#endif /* !APR_VERSION_AT_LEAST(1,7,0) */
 
 /*******************************************************************************
  * link header handling 
