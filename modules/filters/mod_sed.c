@@ -462,13 +462,13 @@ static apr_status_t sed_request_filter(ap_filter_t *f,
     apr_bucket_brigade *bbinp;
     sed_expr_config *sed_cfg = &cfg->input;
 
-    if (mode != AP_MODE_READBYTES) {
-        return ap_get_brigade(f->next, bb, mode, block, readbytes);
-    }
-
     if ((sed_cfg == NULL) || (sed_cfg->sed_cmds == NULL)) {
         /* No sed expression */
         return ap_get_brigade(f->next, bb, mode, block, readbytes);
+    }
+
+    if (mode != AP_MODE_READBYTES && mode != AP_MODE_GETLINE) {
+        return APR_ENOTIMPL;
     }
 
     if (!ctx) {
@@ -510,10 +510,17 @@ static apr_status_t sed_request_filter(ap_filter_t *f,
 
         /* read the bytes from next level filter */
         apr_brigade_cleanup(bbinp);
-        status = ap_get_brigade(f->next, bbinp, mode, block, readbytes);
+        status = ap_get_brigade(f->next, bbinp, AP_MODE_READBYTES, block,
+                                mode == AP_MODE_GETLINE ? AP_IOBUFSIZE
+                                                        : readbytes);
         if (status != APR_SUCCESS) {
             return status;
         }
+        /* The body passed on is not the length the request gave.  Only
+         * drop the header after this read: HTTP_IN takes the length from
+         * it on the first.
+         */
+        apr_table_unset(f->r->headers_in, "Content-Length");
         for (b = APR_BRIGADE_FIRST(bbinp); b != APR_BRIGADE_SENTINEL(bbinp);
              b = APR_BUCKET_NEXT(b)) {
             const char *buf = NULL;
@@ -541,6 +548,10 @@ static apr_status_t sed_request_filter(ap_filter_t *f,
                 flush_output_buffer(ctx);
             }
         }
+    }
+
+    if (mode == AP_MODE_GETLINE) {
+        return apr_brigade_split_line(bb, ctx->bb, block, HUGE_STRING_LEN);
     }
 
     if (!APR_BRIGADE_EMPTY(ctx->bb)) {
