@@ -36,7 +36,7 @@ def pytest_ignore_collect(collection_path, config):
         return True
 
 def pytest_report_header(config, start_path):
-    env = HttpdTestEnv()
+    env = HttpdTestEnv(pytestconfig=config)
     return f"[apache httpd: {env.get_httpd_version()}, mpm: {env.mpm_module}, {env.prefix}]"
 
 def pytest_addoption(parser):
@@ -153,7 +153,14 @@ test_src_dir = {test_dir}
 
 def pytest_configure(config):
     httpd_opt = config.getoption("--httpd", default=None)
-    if httpd_opt and sys.platform == "win32":
+    if not httpd_opt:
+        return
+    ini_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "pyhttpd", "config.ini")
+    if not os.path.isfile(ini_path):
+        # No build-generated config.ini (typical on Windows without
+        # autoconf) — generate one from --httpd/--conf so the framework
+        # has something to read.
         _generate_config_ini(config)
 
 
