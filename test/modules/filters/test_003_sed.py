@@ -72,11 +72,22 @@ class TestSed:
         return os.path.join(env.server_dir, "htdocs", "test1",
                             name).replace(os.sep, "/")
 
-    def configure(self, env, exprs, extra="", input_sed=False):
+    def configure(self, env, exprs, extra="", input_sed=False, fails=False):
         if isinstance(exprs, str):
             exprs = [exprs]
         directive = "InputSed" if input_sed else "OutputSed"
-        lines = "\n".join(f'            {directive} "{e}"' for e in exprs)
+        lines = [f'            {directive} "{e}"'
+                 for e in exprs if isinstance(e, str)]
+        # A directive given as bytes may hold bytes which are not UTF-8, so
+        # it goes into a file of its own, written as-is.
+        raw = [e for e in exprs if isinstance(e, bytes)]
+        if raw:
+            path = os.path.join(env.server_dir, "conf", "sed-raw.conf")
+            with open(path, "wb") as f:
+                f.writelines(directive.encode() + b' "' + e + b'"\n'
+                             for e in raw)
+            lines.append(f'            Include "{path}"')
+        lines = "\n".join(lines)
         conf = HttpdConf(env, extras={
             f"test1.{env.http_tld}": f"""
             <Location "/">
@@ -91,6 +102,15 @@ class TestSed:
         })
         conf.add_vhost_test1()
         conf.install()
+        if fails:
+            # Check the configuration with httpd -t, which reports the error
+            # on stderr on every platform; the server is not restarted.
+            r = env.run([os.path.join(env.bin_dir, "httpd"),
+                         "-d", env.server_dir,
+                         "-f", os.path.join(env.server_dir, "conf",
+                                            "httpd.conf"), "-t"])
+            assert r.exit_code != 0, f"{exprs}: accepted"
+            return r.stderr
         assert env.apache_restart() == 0
 
     def get(self, env, path="/sed.html", options=None):
@@ -356,3 +376,171 @@ class TestSed:
                                data="one monday two")
         assert r.response, "no response"
         assert r.response["body"] == b"one MON two\n"
+
+    # A handler which reads the request body with AP_MODE_GETLINE, not
+    # AP_MODE_READBYTES, still gets it filtered.
+    def test_filters_003_33(self, env):
+        self.configure(env, "s/monday/MON/g", input_sed=True, extra="""
+            <Location "/getline">
+                SetHandler aptest-getline-echo
+                SetInputFilter SED
+            </Location>
+            """)
+        r = env.curl_post_data(env.mkurl("http", "test1", "/getline"),
+                               data="one monday two\nmonday monday\n")
+        assert r.response, "no response"
+        assert r.response["status"] == 200
+        assert r.response["body"] == b"one MON two\nMON MON\n"
+
+    # The request Content-Length is the length of the body before it was
+    # filtered, so once mod_sed has started reading the body it is removed:
+    # a handler must not find the original length.
+    def test_filters_003_34(self, env):
+        self.configure(env, "s/monday/MONDAYMONDAY/g", input_sed=True,
+                       extra="""
+            <Location "/getline">
+                SetHandler aptest-getline-echo
+                SetInputFilter SED
+            </Location>
+            """)
+        data = "one monday two\nmonday monday\n"
+        r = env.curl_post_data(env.mkurl("http", "test1", "/getline"),
+                               data=data)
+        assert r.response, "no response"
+        assert r.response["status"] == 200
+        assert r.response["body"] == \
+            data.replace("monday", "MONDAYMONDAY").encode()
+        assert "ap-test-content-length" not in r.response["header"], \
+            r.response["header"]
+
+    # --- interval expressions ---------------------------------------------
+
+    # \{m,n\} repeats a character or a bracket expression.
+    @pytest.mark.parametrize("expr, out", [
+        (r"s/e\{2\}/X/",
+         "one monday two\nthrX sunday four\nmonday monday monday\n"),
+        (r"s/[a-z]\{6\}/X/",
+         "one X two\nthree X four\nX monday monday\n"),
+    ])
+    def test_filters_003_31(self, env, expr, out):
+        assert self.body(env, expr).decode() == out
+
+    # The matcher only implements \{m,n\} for those, so applied to anything
+    # else -- a group, a backreference, the start of a group or a second
+    # interval -- the expression is rejected rather than compiled into
+    # something the matcher cannot run.
+    @pytest.mark.parametrize("expr", [
+        r"s/\(a\)\{1,2\}/X/",
+        r"s/\(a\)\1\{1,2\}/X/",
+        r"s/\(\{1\}a\)/X/",
+        r"s/a\{1\}\{2,30\}/X/",
+    ])
+    def test_filters_003_32(self, env, expr):
+        err = self.configure(env, expr, fails=True)
+        assert "not allowed here" in err, err
+
+    # --- backreferences to groups -----------------------------------------
+
+    # A backreference may only refer to a group which has been closed; one
+    # inside the group it refers to is rejected.
+    @pytest.mark.parametrize("expr", [
+        r"s/\(\(a*\)\1\)/X/",
+        r"s/\(\(\)\1*\)/X/",
+        r"s/\(a\1\)/X/",
+    ])
+    def test_filters_003_35(self, env, expr):
+        err = self.configure(env, expr, fails=True)
+        assert "out of range" in err, err
+
+    # A backreference to a closed group, even with a later group still open.
+    def test_filters_003_36(self, env):
+        assert self.body(env, r"s/\(\(mo\)n\2*\)day/[\2]/").decode() == \
+            "one [mo] two\nthree sunday four\n[mo] monday monday\n"
+
+    # --- blocks -----------------------------------------------------------
+
+    # Blocks nest up to 20 deep.  Each } goes in its own directive: the
+    # rest of a line after } is not read.
+    def test_filters_003_37(self, env):
+        assert self.body(env, ["{" * 20 + "s/monday/MON/"] + ["}"] * 20) \
+            .decode() == "one MON two\nthree sunday four\nMON monday monday\n"
+
+    # Any deeper is rejected.
+    def test_filters_003_38(self, env):
+        err = self.configure(env, ["{" * 21 + "p"] + ["}"] * 21, fails=True)
+        assert "too many {'s" in err, err
+
+    # --- bracket expressions ----------------------------------------------
+
+    # A bracket expression which ends after a range's "-" is rejected, on
+    # its own or following a longer directive.
+    @pytest.mark.parametrize("exprs", [
+        ["s/[a-"],
+        ["s/aaaa]*/b/", "s/[a-"],
+    ])
+    def test_filters_003_39(self, env, exprs):
+        err = self.configure(env, exprs, fails=True)
+        assert "imbalance" in err, err
+
+    # --- unterminated expressions -----------------------------------------
+
+    # A regular expression without its closing delimiter is rejected, and
+    # is not completed from what an earlier, longer directive left behind.
+    @pytest.mark.parametrize("exprs", [
+        ["s/a"],
+        ["s/aaaa/b/", "s/a"],
+    ])
+    def test_filters_003_40(self, env, exprs):
+        err = self.configure(env, exprs, fails=True)
+        assert "missing delimiter" in err, err
+
+    # --- delimiters -------------------------------------------------------
+
+    # Any byte other than backslash and newline can be the delimiter,
+    # including one with the high bit set.
+    def test_filters_003_41(self, env):
+        assert self.body(env, [b"s\xe9monday\xe9MON\xe9",
+                               b"\\\xe9sunday\xe9s\xe9u\xe9U\xe9"]).decode() \
+            == "one MON two\nthree sUnday four\nMON monday monday\n"
+
+    # An s or y command which ends before its delimiter is rejected.
+    @pytest.mark.parametrize("expr", ["s", "/monday/s", "y", "/monday/y"])
+    def test_filters_003_42(self, env, expr):
+        err = self.configure(env, expr, fails=True)
+        assert "command garbled" in err, err
+
+    # y maps bytes with the high bit set like any other.
+    def test_filters_003_43(self, env):
+        self.write_bytes(env, "latin1.html", b"caf\xe9 na\xefve\n")
+        assert self.body(env, [b"y/\xe9\xef/ei/"], path="/latin1.html") == \
+            b"cafe naive\n"
+
+    # A regular expression which no longer fits once the compiled script
+    # has filled its buffer exactly, here with the names of r commands, is
+    # rejected without writing past the buffer.  Only a memory checker sees
+    # the difference.
+    def test_filters_003_44(self, env):
+        err = self.configure(env, [f"r {'A' * 998}"] * 10
+                             + ["r 123456789", "/x/p"], fails=True)
+        assert "too much command text" in err, err
+
+    # An interval count is rejected as too large however many digits it
+    # has, rather than wrapping around.
+    @pytest.mark.parametrize("expr", [
+        r"s/o\{255\}/X/",
+        r"s/o\{4294967298\}/X/",
+        r"s/o\{1,4294967298\}/X/",
+    ])
+    def test_filters_003_45(self, env, expr):
+        err = self.configure(env, expr, fails=True)
+        assert "Range endpoint too large" in err, err
+
+    # A line number too large for a 64-bit count is rejected rather than
+    # wrapping around; one which fits, but which no document reaches, is
+    # accepted.
+    def test_filters_003_46(self, env):
+        err = self.configure(env, "99999999999999999999p", fails=True)
+        assert "command garbled" in err, err
+
+    def test_filters_003_47(self, env):
+        assert self.body(env, "9223372036854775807d").decode() == DOC
