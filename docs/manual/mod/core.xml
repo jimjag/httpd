@@ -3853,7 +3853,7 @@ or specified mutexes</description>
         module documentation for more information.</p></li>
 
         <li><code>posixsem</code>
-        <p>This is a mutex variant based on a Posix semaphore.</p>
+        <p>This is a mutex variant based on a POSIX semaphore.</p>
 
         <note type="warning"><title>Warning</title>
         <p>The semaphore ownership is not recovered if a thread in the process
@@ -3879,10 +3879,10 @@ or specified mutexes</description>
 
         <li><code>sem</code>
         <p>This selects the "best" available semaphore implementation, choosing
-        between Posix and SystemV IPC semaphores, in that order.</p></li>
+        between POSIX and SystemV IPC semaphores, in that order.</p></li>
 
         <li><code>pthread</code>
-        <p>This is a mutex variant based on cross-process Posix thread
+        <p>This is a mutex variant based on cross-process POSIX thread
         mutexes.</p>
 
         <note type="warning"><title>Warning</title>
@@ -5014,6 +5014,17 @@ SetHandler imap-file
     directories or index files is suppressed. It also overrides
     <directive module="mod_dir">FallbackResource</directive>, since the
     request already has an explicit handler assigned.</p></note>
+
+    <note><title>Merge order with Files/FilesMatch</title>
+    <p>A <directive>SetHandler</directive> set inside a <directive
+    type="section" module="core">Files</directive> or <directive
+    type="section" module="core">FilesMatch</directive> section is merged
+    <em>after</em> one set in a <directive type="section"
+    module="core">Directory</directive> section or <code>.htaccess</code>
+    file for the same request, and so overrides it, even when the
+    <code>.htaccess</code> looks more specific. See <a
+    href="../sections.html#merging">How the sections are merged</a> for the
+    full merge order.</p></note>
 </usage>
 
 <seealso><directive module="mod_mime">AddHandler</directive></seealso>
