@@ -2145,13 +2145,8 @@ PROXY_DECLARE(char *) ap_proxy_define_worker_ex(apr_pool_t *p,
      * in which case the worker goes in the conf slot.
      */
     if (balancer) {
-        proxy_worker **runtime;
-        /* recall that we get a ptr to the ptr here */
-        runtime = apr_array_push(balancer->workers);
-        *worker = *runtime = apr_palloc(p, sizeof(proxy_worker));   /* right to left baby */
-        /* we've updated the list of workers associated with
-         * this balancer *locally* */
-        balancer->wupdated = apr_time_now();
+        /* Added to the balancer's array only once it is complete (below). */
+        *worker = apr_palloc(p, sizeof(proxy_worker));
     } else if (conf) {
         *worker = apr_array_push(conf->workers);
     } else {
@@ -2210,6 +2205,14 @@ PROXY_DECLARE(char *) ap_proxy_define_worker_ex(apr_pool_t *p,
     (*worker)->cp = NULL;
     (*worker)->balancer = balancer;
     (*worker)->s = wshared;
+
+    if (balancer) {
+        proxy_worker **runtime = apr_array_push(balancer->workers);
+        *runtime = *worker;
+        /* we've updated the list of workers associated with
+         * this balancer *locally* */
+        balancer->wupdated = apr_time_now();
+    }
 
     return NULL;
 }
@@ -2421,7 +2424,7 @@ PROXY_DECLARE(apr_status_t) ap_proxy_initialize_worker(proxy_worker *worker, ser
 
     }
     if (rv == APR_SUCCESS) {
-        worker->s->status |= (PROXY_WORKER_INITIALIZED);
+        ap_proxy_set_wstatus(PROXY_WORKER_INITIALIZED_FLAG, 1, worker);
     }
     return rv;
 }
@@ -2440,7 +2443,7 @@ static int ap_proxy_retry_worker(const char *proxy_function, proxy_worker *worke
         if ((worker->s->status & PROXY_WORKER_IGNORE_ERRORS)
             || apr_time_now() > worker->s->error_time + worker->s->retry) {
             ++worker->s->retries;
-            worker->s->status &= ~PROXY_WORKER_IN_ERROR;
+            ap_proxy_set_wstatus(PROXY_WORKER_IN_ERROR_FLAG, 0, worker);
             ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(00932)
                          "%s: worker for (%s:%d) has been marked for retry",
                          proxy_function, worker->s->hostname_ex,
@@ -4058,7 +4061,7 @@ PROXY_DECLARE(int) ap_proxy_connect_backend(const char *proxy_function,
         if (rv != APR_SUCCESS) {
             if (!(worker->s->status & PROXY_WORKER_IGNORE_ERRORS)) {
                 worker->s->error_time = apr_time_now();
-                worker->s->status |= PROXY_WORKER_IN_ERROR;
+                ap_proxy_set_wstatus(PROXY_WORKER_IN_ERROR_FLAG, 1, worker);
                 ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(00959)
                     "ap_proxy_connect_backend disabling worker for (%s:%d) "
                     "for %" APR_TIME_T_FMT "s",
