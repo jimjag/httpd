@@ -69,10 +69,19 @@
 /* Admin can't tune ServerLimit beyond MAX_SERVER_LIMIT.  We want
  * some sort of compile-time limit to help catch typos, and to keep the
  * scoreboard small enough that we can read the whole thing without worrying
- * too much about the overhead.  ServerLimit defaults to twice StartServers.
+ * too much about the overhead.
  */
 #ifndef MAX_SERVER_LIMIT
 #define MAX_SERVER_LIMIT 200000
+#endif
+
+/* ServerLimit defaults to the larger of this and twice StartServers. A graceful
+ * restart leaves the old children in their slots until their connections are
+ * done, and no replacement can start while every slot is taken, so the default
+ * must leave room for several restarts in a row.
+ */
+#ifndef DEFAULT_SERVER_LIMIT
+#define DEFAULT_SERVER_LIMIT 16
 #endif
 
 /* Limit on the threads per process.  Clients will be locked out if more than
@@ -163,13 +172,13 @@ struct motorz_poller_t {
     apr_pollfd_t **listener_pfds;
     int num_listener_pfds;
     int listeners_disabled;
+    apr_time_t last_enable_failure;  /* rate limits the error for it */
 };
 
 typedef struct motorz_child_bucket motorz_child_bucket;
 struct motorz_child_bucket {
     ap_pod_t *pod;
     ap_listen_rec *listeners;
-    apr_proc_mutex_t *mutex;
 };
 
 typedef enum
@@ -226,10 +235,15 @@ struct motorz_conn_t
     conn_rec *c;
     /** request record (if any) this struct refers to */
     request_rec *r;
-    /** is the current conn_rec suspended? */
-    int suspended;
+    /** is the current conn_rec suspended by a module? (atomic: set by the
+     *  worker that parks it, cleared by whoever hands it back) */
+    apr_uint32_t suspended;
+    /** suspend_connection hooks ran and the resume_connection ones have not */
+    int suspend_notified;
     /** has ap_start_lingering_close() been called for this conn? */
     int linger_started;
+    /** absolute end of the lingering close; set once, only ever shortened */
+    apr_time_t linger_deadline;
     /** poll file descriptor information */
     apr_pollfd_t pfd;
     /** public parts of the connection state */

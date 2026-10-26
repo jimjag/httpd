@@ -83,14 +83,13 @@ static int thread_limit = DEFAULT_THREAD_LIMIT;
  */
 static int server_limit = 0;
 
-/* Unique connection ID: child_slot * thread_limit + per-child sequence number.
- * Mirrors the formula used by the worker and event MPMs so that c->id values
- * are globally unique across children and connections within a child.
- * conn_seq is a per-child atomic counter; thread_limit slots per child ensures
- * no overlap between children.
+/* Connection ID: child_slot * thread_limit + worker slot, as in the worker and
+ * event MPMs. It names the worker running the connection, so it is unique among
+ * connections being processed and bounded by the number of worker slots, which
+ * mod_cgid relies on for its per-id bookkeeping. It is refreshed whenever a
+ * worker picks the connection up (motorz_worker_claim_sbh).
  */
 #define ID_FROM_CHILD_THREAD(c, t) ((long)(c) * (long)thread_limit + (long)(t))
-static apr_uint32_t conn_seq = 0;
 
 /* one_process --- debugging mode variable; can be set from the command line
  * with the -X flag.  If set, this gets you the child_main loop running
@@ -110,6 +109,20 @@ static apr_pool_t *pchild;              /* Pool for httpd child stuff */
 static pid_t ap_my_pid; /* it seems silly to call getpid all the time */
 static pid_t parent_pid;
 static int my_child_num;
+
+/* Scoreboard worker slots. A connection is not tied to a thread: it is
+ * processed by whichever worker-pool thread it is dispatched to. So the
+ * scoreboard slots stand for the pool's threads, not for connections. Each
+ * worker thread takes the next free slot the first time it runs a task (the
+ * pool never replaces a thread, so no two live threads share one; c->id is
+ * derived from the slot), points the
+ * connection it is working on at that slot for the duration of the task, and
+ * returns the slot to SERVER_READY when the task ends. Without this every
+ * connection reported through slot 0, from many threads at once.
+ */
+static apr_threadkey_t *worker_slot_key;
+static apr_uint32_t next_worker_slot;
+static ap_sb_handle_t **worker_sbhs;
 /* Number of connections accepted by this child so far; compared against
  * ap_max_requests_per_child. Written by the accepting poller thread
  * (motorz_io_accept) and read by the supervisor on the main thread
@@ -137,6 +150,15 @@ static int volatile draining = 0;
 static int volatile listeners_closed = 0;
 /* Connections accepted by this child and not yet torn down. */
 static apr_uint32_t conns_open = 0;
+/* Those of them in lingering close; they are not counted against the
+ * connection limit (see motorz_connections_above_limit). */
+static apr_uint32_t lingering_count = 0;
+/* AsyncRequestWorkerFactor, scaled so that it can be fractional. */
+#ifndef DEFAULT_WORKER_FACTOR
+#define DEFAULT_WORKER_FACTOR 2
+#endif
+#define WORKER_FACTOR_SCALE 16
+static unsigned int worker_factor = DEFAULT_WORKER_FACTOR * WORKER_FACTOR_SCALE;
 static motorz_child_bucket *all_buckets, /* All listeners buckets */
                             *my_bucket;   /* Current child bucket */
 
@@ -180,6 +202,69 @@ static void motorz_update_listeners(motorz_poller_t *poller);
 static motorz_core_t *motorz_core_get(void)
 {
     return g_motorz_core;
+}
+
+/* The calling worker thread's scoreboard handle (see worker_sbhs). */
+static ap_sb_handle_t *motorz_worker_sbh(void)
+{
+    void *sbh = NULL;
+
+    apr_threadkey_private_get(&sbh, worker_slot_key);
+    if (!sbh) {
+        apr_uint32_t n = apr_atomic_inc32(&next_worker_slot);
+
+        sbh = worker_sbhs[n % (apr_uint32_t)threads_per_child];
+        apr_threadkey_private_set(sbh, worker_slot_key);
+    }
+    return sbh;
+}
+
+static long motorz_sbh_conn_id(ap_sb_handle_t *sbh)
+{
+    int child, thread;
+
+    ap_sb_get_child_thread(sbh, &child, &thread);
+    return ID_FROM_CHILD_THREAD(child, thread);
+}
+
+/* Point scon (and its conn_rec) at the calling worker's slot. Only valid while
+ * the worker owns scon, i.e. after it was claimed and before it is released.
+ */
+static ap_sb_handle_t *motorz_worker_claim_sbh(motorz_conn_t *scon)
+{
+    ap_sb_handle_t *sbh = motorz_worker_sbh();
+
+    scon->sbh = sbh;
+    if (scon->c) {
+        scon->c->sbh = sbh;
+        scon->c->id = motorz_sbh_conn_id(sbh);
+    }
+    return sbh;
+}
+
+/* The suspend/resume_connection hooks (mpm_common.h) tell modules that a
+ * connection is leaving a thread and that the thread which continues it has
+ * picked it up. As in mpm_event, suspend is announced by the worker that is
+ * about to park the connection, before it is published to the poller or handed
+ * to a module (afterwards another worker may already be running it), and resume
+ * by the worker that continues it, once that worker is associated with it.
+ */
+static void motorz_notify_suspend(motorz_conn_t *scon)
+{
+    ap_run_suspend_connection(scon->c, scon->r);
+    scon->c->sbh = NULL;
+    scon->suspend_notified = 1;
+}
+
+static void motorz_notify_resume(motorz_conn_t *scon, int cleanup)
+{
+    if (scon->suspend_notified) {
+        scon->suspend_notified = 0;
+        /* A cleanup resume (the connection ends here) may not be on the
+         * worker whose slot scon->sbh names. */
+        scon->c->sbh = cleanup ? NULL : scon->sbh;
+        ap_run_resume_connection(scon->c, scon->r);
+    }
 }
 
 /* Obtain a transaction pool for a new connection, reusing one from the
@@ -364,14 +449,8 @@ static void *motorz_io_setup_conn(apr_thread_t *thread, void *baton)
     ap_log_error(APLOG_MARK, APLOG_TRACE8, 0, ap_server_conf, APLOGNO(03316)
                          "motorz_io_setup_conn(): entered");
 
-    /* Derive a unique connection ID matching worker/event's formula.
-     * apr_atomic_inc32 returns the value BEFORE increment, so add 1 to get
-     * the sequence number for this connection (sequence starts at 1).
-     * my_child_num is set once at child startup and read-only from here.
-     */
-    conn_id = ID_FROM_CHILD_THREAD(my_child_num,
-                                   (apr_uint32_t)apr_atomic_inc32(&conn_seq) + 1);
-    ap_create_sb_handle(&sbh, scon->pool, my_child_num, 0);
+    sbh = motorz_worker_sbh();
+    conn_id = motorz_sbh_conn_id(sbh);
     scon->sbh = sbh;
     scon->ba = apr_bucket_alloc_create(scon->pool);
 
@@ -430,6 +509,9 @@ static void *motorz_io_setup_conn(apr_thread_t *thread, void *baton)
 
     ap_log_error(APLOG_MARK, APLOG_TRACE8, status, ap_server_conf, APLOGNO(02844)
                  "motorz_io_setup_conn: motorz_io_process status: %d", (int)status);
+
+    /* scon may be gone; this worker's own slot is not. */
+    ap_update_child_status(sbh, SERVER_READY, NULL);
     return NULL;
 }
 
@@ -533,12 +615,14 @@ static apr_status_t motorz_io_accept(motorz_poller_t *poller, motorz_sb_t *sb)
             motorz_ptrans_put(poller, ptrans);
 
             if (rv == APR_EGENERAL) {
+                /* Let the supervisor drain: connections already accepted are
+                 * finished, as for any other graceful stop of the child.
+                 */
                 ap_log_error(APLOG_MARK, APLOG_CRIT, rv, ap_server_conf,
                              APLOGNO(02845)
                              "motorz_io_accept: accept failed, shutting down "
                              "child gracefully");
-                mz->mpm->mpm_state = AP_MPMQ_STOPPING;
-                die_now = 1;
+                graceful_requested = 1;
             }
             else if (ap_accept_error_is_nonfatal(rv)) {
                 ap_log_error(APLOG_MARK, APLOG_DEBUG, rv, ap_server_conf,
@@ -557,8 +641,10 @@ static void *motorz_timer_invoke(apr_thread_t *thread, void *baton)
 {
     motorz_timer_t *ep = (motorz_timer_t *)baton;
     motorz_conn_t *scon = (motorz_conn_t *)ep->baton;
+    ap_sb_handle_t *sbh = motorz_worker_claim_sbh(scon);
 
     scon->c->current_thread = thread;
+    motorz_notify_resume(scon, 0);
 
     ap_log_error(APLOG_MARK, APLOG_TRACE8, 0, ap_server_conf, APLOGNO(03320)
                          "motorz_timer_invoke(): entered");
@@ -568,12 +654,16 @@ static void *motorz_timer_invoke(apr_thread_t *thread, void *baton)
     ap_log_error(APLOG_MARK, APLOG_TRACE8, 0, ap_server_conf, APLOGNO(03321)
                          "motorz_timer_invoke(): exited");
 
+    /* scon may be gone; this worker's own slot is not. */
+    ap_update_child_status(sbh, SERVER_READY, NULL);
+
     return NULL;
 }
 
 static apr_status_t motorz_timer_event_process(motorz_poller_t *poller, motorz_timer_t *te)
 {
     motorz_conn_t *scon = (motorz_conn_t *)te->baton;
+    apr_status_t rv;
     scon->timer.expires = 0;
 
     ap_log_error(APLOG_MARK, APLOG_TRACE8, 0, ap_server_conf, APLOGNO(03322)
@@ -590,20 +680,33 @@ static apr_status_t motorz_timer_event_process(motorz_poller_t *poller, motorz_t
      */
     motorz_pollset_del(poller, scon);
 
-    return apr_thread_pool_push(poller->mz->workers,
-                                motorz_timer_invoke,
-                                te, APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    rv = apr_thread_pool_push(poller->mz->workers,
+                              motorz_timer_invoke,
+                              te, APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    if (rv != APR_SUCCESS) {
+        /* Nothing will run the timeout, and the connection is no longer
+         * reachable from the poller: close it here. (The pool is created with
+         * all its threads, so a failed push means it is stopping or out of
+         * memory; the task was not queued.) */
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, ap_server_conf, APLOGNO(10668)
+                     "motorz_timer_event_process: could not queue the timeout; "
+                     "closing the connection");
+        motorz_conn_done(scon);
+    }
+    return rv;
 }
 
 static void *motorz_io_invoke(apr_thread_t *thread, void *baton)
 {
     motorz_sb_t *sb = (motorz_sb_t *) baton;
     motorz_conn_t *scon = (motorz_conn_t *) sb->baton;
+    ap_sb_handle_t *sbh = motorz_worker_claim_sbh(scon);
     apr_status_t rv;
 
     ap_log_error(APLOG_MARK, APLOG_TRACE8, 0, ap_server_conf, APLOGNO(03323)
                          "motorz_io_invoke(): entered");
     scon->c->current_thread = thread;
+    motorz_notify_resume(scon, 0);
 
     rv = motorz_io_process(scon);
 
@@ -611,12 +714,16 @@ static void *motorz_io_invoke(apr_thread_t *thread, void *baton)
         ap_log_error(APLOG_MARK, APLOG_TRACE8, rv, ap_server_conf, APLOGNO(02846)
                      "motorz_io_invoke: motorz_io_process failed (?)");
     }
+
+    /* scon may be gone; this worker's own slot is not. */
+    ap_update_child_status(sbh, SERVER_READY, NULL);
     return NULL;
 }
 
 static apr_status_t motorz_io_event_process(motorz_poller_t *poller, motorz_sb_t *sb)
 {
     motorz_conn_t *scon = (motorz_conn_t *) sb->baton;
+    apr_status_t rv;
 
     /* Take ownership of this connection on the poll thread before handing it
      * to a worker: disarm its pollset entry and cancel any pending timeout
@@ -631,9 +738,18 @@ static apr_status_t motorz_io_event_process(motorz_poller_t *poller, motorz_sb_t
      */
     motorz_conn_claim(poller, scon);
 
-    return apr_thread_pool_push(poller->mz->workers,
-                                motorz_io_invoke,
-                                sb, APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    rv = apr_thread_pool_push(poller->mz->workers,
+                              motorz_io_invoke,
+                              sb, APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    if (rv != APR_SUCCESS) {
+        /* The connection has been claimed, so nothing else would ever reach
+         * it again: close it here. (See motorz_timer_event_process.) */
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, ap_server_conf, APLOGNO(10669)
+                     "motorz_io_event_process: could not queue the connection; "
+                     "closing it");
+        motorz_conn_done(scon);
+    }
+    return rv;
 }
 
 static apr_status_t motorz_io_callback(void *baton, const apr_pollfd_t *pfd)
@@ -805,6 +921,14 @@ static void motorz_conn_done(motorz_conn_t *scon)
     ap_log_error(APLOG_MARK, APLOG_TRACE6, 0, ap_server_conf,
                  "motorz_conn_done(): scon: %pp", scon);
 
+    if (scon->linger_started) {
+        apr_atomic_dec32(&lingering_count);
+    }
+    if (scon->suspend_notified) {
+        /* Parked, and ended without a worker picking it up again. */
+        motorz_notify_resume(scon, 1);
+    }
+
     /* Disarm on the I/O poller (its pollset), then recycle to the accepting
      * poller's free-list (its single-consumer pop home -- not the I/O poller).
      */
@@ -840,41 +964,46 @@ static apr_status_t motorz_lingering_close(motorz_conn_t *scon)
     char dummybuf[512];
     apr_size_t nbytes;
     apr_status_t rv;
+    apr_time_t now;
+    apr_interval_time_t remaining;
+
+    /* A draining child cuts every linger short, but never extends one. */
+    if (draining) {
+        apr_time_t short_end = apr_time_now() + apr_time_from_sec(SECONDS_TO_LINGER);
+
+        if (short_end < scon->linger_deadline) {
+            scon->linger_deadline = short_end;
+        }
+    }
 
     do {
         nbytes = sizeof(dummybuf);
         rv = apr_socket_recv(csd, dummybuf, &nbytes);
-    } while (rv == APR_SUCCESS);
+    } while (rv == APR_SUCCESS && apr_time_now() < scon->linger_deadline);
 
-    if (!APR_STATUS_IS_EAGAIN(rv)) {
-        /* Peer closed, reset, or hard error: we are done. */
+    now = apr_time_now();
+    if (rv == APR_SUCCESS || (!APR_STATUS_IS_EAGAIN(rv))
+            || now >= scon->linger_deadline) {
+        /* Peer closed, reset, hard error, or out of time: we are done. */
         motorz_conn_done(scon);
         return APR_SUCCESS;
     }
+    remaining = scon->linger_deadline - now;
 
-    /* Nothing left to read for now; wait for more readability, bounded by the
-     * linger timeout. A readable PT_CSD dispatch goes through
-     * motorz_conn_claim(), which cancels this connection's timer, so we must
-     * (re)register the linger timeout here alongside (re)arming the pollset.
-     * This means a peer that keeps dribbling data resets the deadline each
-     * time -- the same bounded imprecision mpm_event accepts for its linger
-     * queues, and exactly the slow-drain case the timeout exists to cap.
-     * Honour a module's request for a shortened linger period.
+    /* Nothing left to read for now; wait for more readability until the
+     * deadline. A readable PT_CSD dispatch goes through motorz_conn_claim(),
+     * which cancels this connection's timer, so the timeout is re-registered
+     * here alongside (re)arming the pollset -- for the time that is left, so a
+     * peer that keeps dribbling data cannot extend it.
      *
      * Arm pollset + timer atomically (motorz_conn_register); after it returns
      * scon may already have been freed by a concurrent timeout, so we must not
      * touch it again -- including on the error path, where the rollback inside
      * motorz_conn_register has disarmed it and we just close.
      */
-    {
-        apr_interval_time_t linger =
-            (draining || apr_table_get(scon->c->notes, "short-lingering-close"))
-                ? apr_time_from_sec(SECONDS_TO_LINGER)
-                : apr_time_from_sec(MAX_SECS_TO_LINGER);
-        rv = motorz_conn_register(scon,
-                                  APR_POLLIN | APR_POLLHUP | APR_POLLERR,
-                                  motorz_linger_timeout_cb, linger);
-    }
+    rv = motorz_conn_register(scon,
+                              APR_POLLIN | APR_POLLHUP | APR_POLLERR,
+                              motorz_linger_timeout_cb, remaining);
     if (rv != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_TRACE1, rv, ap_server_conf,
                      "motorz_lingering_close: apr_pollset_add failed; closing");
@@ -898,16 +1027,21 @@ static void motorz_start_lingering_close(motorz_conn_t *scon)
 
     scon->cs.state = CONN_STATE_LINGER;
 
-    /* ap_start_lingering_close() flushes and shuts down the write side. A
-     * true return means there is nothing to linger over (aborted or no
-     * half-close needed), so close immediately.
+    /* ap_start_lingering_close() flushes and shuts down the write side; bound
+     * the flush as mpm_event does. A true return means there is nothing to
+     * linger over (aborted or no half-close needed), so close immediately.
      */
+    apr_socket_timeout_set(csd, apr_time_from_sec(SECONDS_TO_LINGER));
     if (ap_start_lingering_close(c)) {
         motorz_conn_done(scon);
         return;
     }
 
     scon->linger_started = 1;
+    apr_atomic_inc32(&lingering_count);
+    scon->linger_deadline = apr_time_now() + apr_time_from_sec(
+        (draining || apr_table_get(c->notes, "short-lingering-close"))
+            ? SECONDS_TO_LINGER : MAX_SECS_TO_LINGER);
 
     /* All draining from here is non-blocking. */
     apr_socket_timeout_set(csd, 0);
@@ -968,12 +1102,9 @@ static void motorz_suspend_connection(motorz_conn_t *scon)
                  "motorz_suspend_connection(): scon: %pp", scon);
 
     c->suspended_baton = scon;
-    scon->suspended = 1;
-    ap_run_suspend_connection(c, scon->r);
-    /* sbh is owned by the (now parked) connection; drop our reference like
-     * mpm_event's notify_suspend() does.
-     */
-    c->sbh = NULL;
+    motorz_notify_suspend(scon);
+    /* Last: from here on the module may hand the connection back. */
+    apr_atomic_set32(&scon->suspended, 1);
 }
 
 static apr_status_t motorz_io_process(motorz_conn_t *scon)
@@ -1080,6 +1211,14 @@ read_request:
                  * fall thru to either wait for readability/timeout or
                  * do lingering close
                  */
+                if (scon->cs.state == CONN_STATE_PROCESSING) {
+                    /* No hook took the connection on (DECLINED), or one
+                     * returned OK without setting a state, as a protocol
+                     * module written for worker or prefork does (mod_echo):
+                     * nothing below would end it. Close it, as event does.
+                     */
+                    scon->cs.state = CONN_STATE_LINGER;
+                }
             }
             else {
                 ap_log_error(APLOG_MARK, APLOG_TRACE7, 0, ap_server_conf,
@@ -1125,6 +1264,7 @@ read_request:
                 (scon->cs.sense == CONN_SENSE_WANT_WRITE ? APR_POLLOUT
                                                          : APR_POLLIN)
                 | APR_POLLHUP | APR_POLLERR;
+            motorz_notify_suspend(scon);
             rv = motorz_conn_register(scon, reqevents,
                                       motorz_io_timeout_cb,
                                       motorz_get_timeout(scon));
@@ -1158,6 +1298,7 @@ read_request:
                     (scon->cs.sense == CONN_SENSE_WANT_READ ? APR_POLLIN
                                                             : APR_POLLOUT)
                     | APR_POLLHUP | APR_POLLERR;
+                motorz_notify_suspend(scon);
                 rv = motorz_conn_register(scon, reqevents,
                                           motorz_io_timeout_cb,
                                           motorz_get_timeout(scon));
@@ -1208,6 +1349,7 @@ read_request:
              * afterwards (a concurrent timeout may free it). On failure scon
              * is already disarmed by the rollback; close it.
              */
+            motorz_notify_suspend(scon);
             rv = motorz_conn_register(scon,
                                       APR_POLLIN | APR_POLLHUP | APR_POLLERR,
                                       motorz_io_timeout_cb,
@@ -1230,45 +1372,46 @@ read_request:
 }
 
 /* mpm_resume_suspended hook (A4): a module that previously suspended this
- * connection is handing it back. Recover scon from the suspended_baton, run
- * the resume_connection hooks, and re-inject it into the worker pool to
- * continue in write-completion (flush, then keep-alive or close). May be
- * called from a module's own thread, so we hand off rather than process
- * inline.
+ * connection is handing it back. Recover scon from the suspended_baton and
+ * re-inject it into the worker pool to continue in write-completion (flush,
+ * then keep-alive or close). May be called from a module's own thread, so we
+ * hand off rather than process inline; the worker that picks it up runs the
+ * resume_connection hooks (motorz_notify_resume), as that is the thread that
+ * continues the connection. Only one resume per suspension is accepted.
  */
 static apr_status_t motorz_resume_suspended(conn_rec *c)
 {
     motorz_conn_t *scon = (motorz_conn_t *) c->suspended_baton;
-    motorz_core_t *mz;
+    conn_state_e prev_state;
+    conn_sense_e prev_sense;
+    apr_status_t rv;
 
-    if (scon == NULL || !scon->suspended) {
+    if (scon == NULL || apr_atomic_cas32(&scon->suspended, 0, 1) != 1) {
         ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c, APLOGNO(10551)
                       "motorz_resume_suspended: connection not suspended");
         return APR_EGENERAL;
     }
-    mz = scon->mz;
 
     c->suspended_baton = NULL;
-    scon->suspended = 0;
-
-    /* Restore sbh before running resume hooks: motorz_suspend_connection
-     * NULLed c->sbh (matching event's notify_suspend), but any module or
-     * filter calling ap_update_child_status(c->sbh, ...) after resume would
-     * dereference NULL without this. scon->sbh is valid for the connection's
-     * lifetime (it lives in scon->pool which is not recycled during suspend).
-     */
-    c->sbh = scon->sbh;
-    ap_run_resume_connection(c, scon->r);
-
-    /* Continue where a normal request would after processing: flush pending
-     * output, then decide keep-alive vs. close.
-     */
+    prev_state = scon->cs.state;
+    prev_sense = scon->cs.sense;
     scon->cs.state = CONN_STATE_WRITE_COMPLETION;
     scon->cs.sense = CONN_SENSE_DEFAULT;
 
-    return apr_thread_pool_push(mz->workers, motorz_io_invoke,
-                                scon->pfd.client_data,
-                                APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    rv = apr_thread_pool_push(scon->mz->workers, motorz_io_invoke,
+                              scon->pfd.client_data,
+                              APR_THREAD_TASK_PRIORITY_NORMAL, NULL);
+    if (rv != APR_SUCCESS) {
+        /* Not queued (see motorz_timer_event_process): the module still owns
+         * the connection, so it can try again or close it. */
+        ap_log_cerror(APLOG_MARK, APLOG_ERR, rv, c, APLOGNO(10670)
+                      "motorz_resume_suspended: could not queue the connection");
+        c->suspended_baton = scon;
+        scon->cs.state = prev_state;
+        scon->cs.sense = prev_sense;
+        apr_atomic_set32(&scon->suspended, 1);
+    }
+    return rv;
 }
 
 /* One poll thread per poller drives accept/dispatch/timer work for the
@@ -1366,6 +1509,8 @@ static int motorz_setup_pollset(motorz_poller_t *poller)
 static void motorz_note_child_killed(int childnum, pid_t pid,
                                       ap_generation_t gen)
 {
+    int i;
+
     AP_DEBUG_ASSERT(childnum != -1); /* no scoreboard squatting with this MPM */
     ap_run_child_status(ap_server_conf,
                         ap_scoreboard_image->parent[childnum].pid,
@@ -1373,6 +1518,10 @@ static void motorz_note_child_killed(int childnum, pid_t pid,
                         childnum, MPM_CHILD_EXITED);
     ap_scoreboard_image->parent[childnum].pid = 0;
     ap_scoreboard_image->parent[childnum].quiescing = 0;
+    /* Whatever the child's worker slots last said is stale now. */
+    for (i = 0; i < thread_limit; i++) {
+        ap_update_child_status_from_indexes(childnum, i, SERVER_DEAD, NULL);
+    }
 }
 
 static void motorz_note_child_started(motorz_core_t *mz, int slot, pid_t pid)
@@ -1441,62 +1590,6 @@ static void clean_child_exit(int code)
     exit(code);
 }
 
-#if 0 /* unused for now */
-static apr_status_t accept_mutex_on(void)
-{
-    motorz_core_t *mz = motorz_core_get();
-    apr_status_t rv = apr_proc_mutex_lock(my_bucket->mutex);
-    if (rv != APR_SUCCESS) {
-        const char *msg = "couldn't grab the accept mutex";
-
-        if (mz->mpm->my_generation !=
-            ap_scoreboard_image->global->running_generation) {
-            ap_log_error(APLOG_MARK, APLOG_DEBUG, rv, ap_server_conf, APLOGNO(02855) "%s", msg);
-            clean_child_exit(0);
-        }
-        else {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, rv, ap_server_conf, APLOGNO(02856) "%s", msg);
-            exit(APEXIT_CHILDFATAL);
-        }
-    }
-    return APR_SUCCESS;
-}
-
-static apr_status_t accept_mutex_off(void)
-{
-    motorz_core_t *mz = motorz_core_get();
-    apr_status_t rv = apr_proc_mutex_unlock(my_bucket->mutex);
-    if (rv != APR_SUCCESS) {
-        const char *msg = "couldn't release the accept mutex";
-
-        if (mz->mpm->my_generation !=
-            ap_scoreboard_image->global->running_generation) {
-            ap_log_error(APLOG_MARK, APLOG_DEBUG, rv, ap_server_conf, APLOGNO(02857) "%s", msg);
-            /* don't exit here... we have a connection to
-             * process, after which point we'll see that the
-             * generation changed and we'll exit cleanly
-             */
-        }
-        else {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, rv, ap_server_conf, APLOGNO(02858) "%s", msg);
-            exit(APEXIT_CHILDFATAL);
-        }
-    }
-    return APR_SUCCESS;
-}
-#endif
-
-/* On some architectures it's safe to do unserialized accept()s in the single
- * Listen case.  But it's never safe to do it in the case where there's
- * multiple Listen statements.  Define SINGLE_LISTEN_UNSERIALIZED_ACCEPT
- * when it's safe in the single Listen case.
- */
-#ifdef SINGLE_LISTEN_UNSERIALIZED_ACCEPT
-#define SAFE_ACCEPT(stmt) (ap_listeners->next ? (stmt) : APR_SUCCESS)
-#else
-#define SAFE_ACCEPT(stmt) (stmt)
-#endif
-
 static int motorz_query(int query_code, int *result, apr_status_t *rv)
 {
     motorz_core_t *mz = motorz_core_get();
@@ -1550,7 +1643,7 @@ static int motorz_query(int query_code, int *result, apr_status_t *rv)
         *result = 0;
         break;
     case AP_MPMQ_MAX_REQUESTS_DAEMON:
-        *result = 0;
+        *result = ap_max_requests_per_child;
         break;
     case AP_MPMQ_MAX_DAEMONS:
         *result = ap_num_kids;
@@ -1655,9 +1748,24 @@ static void motorz_enable_listeners(motorz_poller_t *poller)
     for (i = 0; i < poller->num_listener_pfds; i++) {
         apr_status_t rv = apr_pollset_add(poller->pollset,
                                           poller->listener_pfds[i]);
-        if (rv != APR_SUCCESS) {
-            ap_log_error(APLOG_MARK, APLOG_TRACE1, rv, ap_server_conf,
-                         "motorz_enable_listeners: apr_pollset_add failed");
+        if (rv != APR_SUCCESS && !APR_STATUS_IS_EEXIST(rv)) {
+            /* Stay disabled and try again on the next pass; say so, but not on
+             * every pass. Take back the ones added so far: a pollset need not
+             * tell that a descriptor is there already. */
+            apr_time_t now = apr_time_now();
+            int j;
+
+            for (j = 0; j < i; j++) {
+                apr_pollset_remove(poller->pollset, poller->listener_pfds[j]);
+            }
+
+            if (now - poller->last_enable_failure > apr_time_from_sec(10)) {
+                poller->last_enable_failure = now;
+                ap_log_error(APLOG_MARK, APLOG_ERR, rv, ap_server_conf,
+                             APLOGNO(10671) "motorz_enable_listeners: could not "
+                             "accept connections again; retrying");
+            }
+            return;
         }
     }
     poller->listeners_disabled = 0;
@@ -1668,9 +1776,33 @@ static void motorz_enable_listeners(motorz_poller_t *poller)
                  "Accepting new connections again in this child");
 }
 
+/* The connection limit, as in mpm_event: a child accepts while the connections
+ * it has, not counting those in lingering close, number fewer than
+ * ThreadsPerChild + AsyncRequestWorkerFactor * idle workers. Parked connections
+ * (keep-alive, waiting for I/O, writing) use no worker, so without this limit
+ * idle clients could pile up without bound. 'idle' is the number of idle
+ * workers, which must be above zero.
+ */
+static int motorz_connections_above_limit(motorz_poller_t *poller,
+                                          apr_size_t idle)
+{
+    apr_uint32_t open = apr_atomic_read32(&conns_open);
+    apr_uint32_t lingering = apr_atomic_read32(&lingering_count);
+
+    /* While the listeners are off count one idle worker less, so that the
+     * limit does not flip with every connection that closes. */
+    if (poller->listeners_disabled) {
+        idle--;
+    }
+    return open > lingering
+           && (apr_uint64_t)(open - lingering)
+              >= (apr_uint64_t)threads_per_child
+                 + (apr_uint64_t)idle * worker_factor / WORKER_FACTOR_SCALE;
+}
+
 /* Reconsider admission once per poll-loop iteration (owning poller's thread).
  * Disable listeners when the worker pool is saturated and re-enable once it has
- * drained. Three complementary saturation signals:
+ * drained. Four complementary saturation signals:
  *
  *  1. idle == 0: no thread is free to pick up a new connection right now.
  *  2. pending >= throttle_hi: the push queue has a full wave of unstarted tasks
@@ -1678,6 +1810,8 @@ static void motorz_enable_listeners(motorz_poller_t *poller)
  *  3. active >= threads_per_child: all threads are occupied, including those
  *     blocked in I/O waits -- catches the slow-client / keep-alive-heavy case
  *     where the task queue looks empty but workers are fully tied up.
+ *  4. the child holds as many connections as the limit allows, whether or not
+ *     they use a worker (motorz_connections_above_limit).
  *
  * The hysteresis band (hi/lo) on the pending count avoids enable/disable
  * flapping. A poller that does not own listeners (num_listener_pfds == 0) no-ops.
@@ -1705,13 +1839,15 @@ static void motorz_update_listeners(motorz_poller_t *poller)
     if (!poller->listeners_disabled) {
         if (idle == 0
                 || pending >= motorz_throttle_hi
-                || active >= (apr_size_t)threads_per_child) {
+                || active >= (apr_size_t)threads_per_child
+                || motorz_connections_above_limit(poller, idle)) {
             motorz_disable_listeners(poller);
         }
     }
     else if (idle > 0
                  && pending <= motorz_throttle_lo
-                 && active < (apr_size_t)threads_per_child) {
+                 && active < (apr_size_t)threads_per_child
+                 && !motorz_connections_above_limit(poller, idle)) {
         motorz_enable_listeners(poller);
     }
 }
@@ -1950,7 +2086,7 @@ static void *APR_THREAD_FUNC motorz_poller_main(apr_thread_t *thread, void *bato
  * The core's keep-alive logic and mod_http2 see AP_MPMQ_STOPPING and wind
  * their connections down.
  */
-static void motorz_start_drain(motorz_core_t *mz, ap_sb_handle_t *sbh)
+static void motorz_start_drain(motorz_core_t *mz)
 {
     if (draining) {
         return;
@@ -1958,7 +2094,6 @@ static void motorz_start_drain(motorz_core_t *mz, ap_sb_handle_t *sbh)
     mz->mpm->mpm_state = AP_MPMQ_STOPPING;
     draining = 1;
     ap_scoreboard_image->parent[my_child_num].quiescing = 1;
-    ap_update_child_status(sbh, SERVER_GRACEFUL, NULL);
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, ap_server_conf, APLOGNO(10653)
                  "child draining: %u connection(s) open",
                  (unsigned)apr_atomic_read32(&conns_open));
@@ -1972,21 +2107,18 @@ static void motorz_start_drain(motorz_core_t *mz, ap_sb_handle_t *sbh)
  * every connection is gone; die_now (SIGTERM) or the single-process
  * shutdown/restart flags end it early.
  */
-static void motorz_supervise(motorz_core_t *mz, ap_sb_handle_t *sbh)
+static void motorz_supervise(motorz_core_t *mz)
 {
     while (!die_now
            && !mz->mpm->shutdown_pending
            && !mz->mpm->restart_pending) {
 
         if (draining) {
-            ap_update_child_status(sbh, SERVER_GRACEFUL, NULL);
             if (listeners_closed && apr_atomic_read32(&conns_open) == 0) {
                 break;
             }
         }
         else {
-            ap_update_child_status(sbh, SERVER_READY, NULL);
-
             /* requests_this_child is bumped per accepted connection by the
              * listener-owning poller. The pod and generation checks are for
              * a graceful restart or stop and an idle kill; a hard restart
@@ -1998,7 +2130,7 @@ static void motorz_supervise(motorz_core_t *mz, ap_sb_handle_t *sbh)
                 || ap_mpm_pod_check(my_bucket->pod) == APR_SUCCESS
                 || mz->mpm->my_generation !=
                    ap_scoreboard_image->global->running_generation) {
-                motorz_start_drain(mz, sbh);
+                motorz_start_drain(mz);
                 continue;
             }
         }
@@ -2018,8 +2150,6 @@ static void child_main(motorz_core_t *mz, int child_num_arg, int child_bucket)
 #endif
     apr_status_t status;
     int i, drained;
-    ap_sb_handle_t *sbh;
-    const char *lockfile;
     motorz_poller_t *poller;
 
     /* for benefit of any hooks that run as this child initializes */
@@ -2052,18 +2182,6 @@ static void child_main(motorz_core_t *mz, int child_num_arg, int child_bucket)
 
     /* needs to be done before we switch UIDs so we have permissions */
     ap_reopen_scoreboard(pchild, NULL, 0);
-    status = SAFE_ACCEPT(apr_proc_mutex_child_init(&my_bucket->mutex,
-                                    apr_proc_mutex_lockfile(my_bucket->mutex),
-                                    pchild));
-    if (status != APR_SUCCESS) {
-        lockfile = apr_proc_mutex_lockfile(my_bucket->mutex);
-        ap_log_error(APLOG_MARK, APLOG_EMERG, status, ap_server_conf, APLOGNO(02867)
-                     "Couldn't initialize cross-process lock in child "
-                     "(%s) (%s)",
-                     lockfile ? lockfile : "none",
-                     apr_proc_mutex_name(my_bucket->mutex));
-        clean_child_exit(APEXIT_CHILDFATAL);
-    }
 
     if (ap_run_drop_privileges(pchild, ap_server_conf)) {
         clean_child_exit(APEXIT_CHILDFATAL);
@@ -2071,9 +2189,19 @@ static void child_main(motorz_core_t *mz, int child_num_arg, int child_bucket)
 
     ap_run_child_init(pchild, ap_server_conf);
 
-    ap_create_sb_handle(&sbh, pchild, my_child_num, 0);
-
-    ap_update_child_status(sbh, SERVER_READY, NULL);
+    /* One scoreboard slot per worker thread, all idle until used. */
+    status = apr_threadkey_private_create(&worker_slot_key, NULL, pchild);
+    if (status != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_CRIT, status, ap_server_conf, APLOGNO(10654)
+                     "child_main: apr_threadkey_private_create failed");
+        clean_child_exit(APEXIT_CHILDSICK);
+    }
+    next_worker_slot = 0;
+    worker_sbhs = apr_pcalloc(pchild, threads_per_child * sizeof(*worker_sbhs));
+    for (i = 0; i < threads_per_child; i++) {
+        ap_create_sb_handle(&worker_sbhs[i], pchild, my_child_num, i);
+        ap_update_child_status(worker_sbhs[i], SERVER_READY, NULL);
+    }
 
     status = motorz_setup_workers(mz);
     if (status != APR_SUCCESS) {
@@ -2114,9 +2242,8 @@ static void child_main(motorz_core_t *mz, int child_num_arg, int child_bucket)
     }
 
     /* Create N pollers, each on its own thread, supervised by this thread.
-     * Poller 0 owns the listening sockets (and thus does the accepting);
-     * Stage 3 will shard accepted connections across all pollers. With a
-     * single poller this is behaviourally identical to the old design.
+     * Poller 0 owns the listening sockets (and thus does the accepting) and
+     * shards the accepted connections across all pollers.
      */
     mz->pollers = apr_pcalloc(mz->pool,
                               mz->num_pollers * sizeof(motorz_poller_t *));
@@ -2145,7 +2272,7 @@ static void child_main(motorz_core_t *mz, int child_num_arg, int child_bucket)
     }
 
     /* Supervise on this thread; returns when the child should wind down. */
-    motorz_supervise(mz, sbh);
+    motorz_supervise(mz);
 
     /* A drain that ran to completion leaves die_now clear: set it so the
      * pollers wind down, then join them so their pollsets/rings are quiescent
@@ -2271,8 +2398,10 @@ static int startup_children(motorz_core_t *mz, int number_to_start)
  */
 static void perform_idle_server_maintenance(motorz_core_t *mz, apr_pool_t *p)
 {
+    static int no_slot_reported = 0;    /* log once per episode */
     int free_slot = -1;
     int active = 0;
+    int draining_kids = 0;
     int i;
 
     for (i = 0; i < server_limit; ++i) {
@@ -2285,6 +2414,9 @@ static void perform_idle_server_maintenance(motorz_core_t *mz, apr_pool_t *p)
         }
         else if (ps->generation == mz->mpm->my_generation && !ps->quiescing) {
             active++;
+        }
+        else {
+            draining_kids++;
         }
     }
 
@@ -2299,6 +2431,26 @@ static void perform_idle_server_maintenance(motorz_core_t *mz, apr_pool_t *p)
     }
     else if (active < ap_num_kids && free_slot >= 0) {
         make_child(mz, ap_server_conf, free_slot);
+    }
+
+    /* Draining children keep their slots, so with every slot taken nothing can
+     * start, and if no current child is left nothing accepts connections until
+     * an old one exits. Say so once, as mpm_event does.
+     */
+    if (active < ap_num_kids && free_slot < 0) {
+        if (!no_slot_reported) {
+            ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, APLOGNO(10657)
+                         "scoreboard is full, cannot start %d of %d child "
+                         "process(es): %d of the %d slots are held by children "
+                         "still draining connections after a restart. "
+                         "Increase ServerLimit.",
+                         ap_num_kids - active, ap_num_kids, draining_kids,
+                         server_limit);
+            no_slot_reported = 1;
+        }
+    }
+    else {
+        no_slot_reported = 0;
     }
 }
 
@@ -2361,12 +2513,6 @@ static int motorz_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s)
                 "Server built: %s", ap_get_server_built());
     ap_log_command_line(plog, s);
     ap_log_mpm_common(s);
-    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, ap_server_conf, APLOGNO(02876)
-                "Accept mutex: %s (default: %s)",
-                (all_buckets[0].mutex)
-                    ? apr_proc_mutex_name(all_buckets[0].mutex)
-                    : "none",
-                apr_proc_mutex_defname());
 
     mz->mpm->mpm_state = AP_MPMQ_RUNNING;
 
@@ -2612,7 +2758,6 @@ static int motorz_open_logs(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, 
     int level_flags = 0;
     ap_listen_rec **listen_buckets;
     apr_status_t rv;
-    char id[16];
     int i;
 
     motorz_core_t *mz = motorz_core_get();
@@ -2660,16 +2805,6 @@ static int motorz_open_logs(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, 
                          "could not open pipe-of-death");
             return !OK;
         }
-        /* Initialize cross-process accept lock (safe accept needed only) */
-        if ((rv = SAFE_ACCEPT((apr_snprintf(id, sizeof id, "%i", i),
-                               ap_proc_mutex_create(&all_buckets[i].mutex,
-                                                    NULL, AP_ACCEPT_MUTEX_TYPE,
-                                                    id, s, pconf, 0))))) {
-            ap_log_error(APLOG_MARK, APLOG_CRIT | level_flags, rv,
-                         (startup ? NULL : s), APLOGNO(03278)
-                         "could not create accept mutex");
-            return !OK;
-        }
         all_buckets[i].listeners = listen_buckets[i];
     }
 
@@ -2698,6 +2833,10 @@ static int motorz_pre_config(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp)
         foreground = ap_exists_config_define("FOREGROUND");
     }
 
+    /* motorz never serializes accept() (the listening sockets are non-blocking
+     * and polled), so there is no accept mutex to create. The type is still
+     * registered so that an existing "Mutex accept ..." line keeps parsing.
+     */
     ap_mutex_register(p, AP_ACCEPT_MUTEX_TYPE, NULL, APR_LOCK_DEFAULT, 0);
 
     mz = g_motorz_core = ap_retained_data_get(userdata_key);
@@ -2813,8 +2952,9 @@ static int motorz_check_config(apr_pool_t *p, apr_pool_t *plog,
     }
 
     if (server_limit == 0) {
-        /* Not configured: twice StartServers, so that a new generation can
-         * start while the previous one drains, and then whatever the first
+        /* Not configured: twice StartServers, but at least
+         * DEFAULT_SERVER_LIMIT, so that new generations can start while
+         * several earlier ones still drain, and then whatever the first
          * startup chose.
          */
         if (mz->first_server_limit) {
@@ -2825,6 +2965,9 @@ static int motorz_check_config(apr_pool_t *p, apr_pool_t *plog,
         }
         else {
             server_limit = 2 * ap_num_kids;
+            if (server_limit < DEFAULT_SERVER_LIMIT) {
+                server_limit = DEFAULT_SERVER_LIMIT;
+            }
         }
     }
     else {
@@ -2928,6 +3071,23 @@ static int motorz_check_config(apr_pool_t *p, apr_pool_t *plog,
             ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s, APLOGNO(10556)
                          "ThreadsPerChild 1 causes severe throughput "
                          "degradation in motorz. Use ThreadsPerChild >= 4.");
+        }
+    }
+
+    /* The request-processing threads belong to an APR thread pool, which has no
+     * way to give them a stack size, so ThreadStackSize cannot be honoured.
+     */
+    if (ap_thread_stacksize != 0) {
+        if (startup) {
+            ap_log_error(APLOG_MARK, APLOG_WARNING | APLOG_STARTUP, 0, NULL,
+                         APLOGNO(10655)
+                         "WARNING: ThreadStackSize is not supported by "
+                         "mpm_motorz and is ignored.");
+        }
+        else {
+            ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s, APLOGNO(10656)
+                         "ThreadStackSize is not supported by mpm_motorz and "
+                         "is ignored");
         }
     }
 
@@ -3035,6 +3195,32 @@ static const char *set_pollers_per_child(cmd_parms *cmd, void *dummy,
     return NULL;
 }
 
+static const char *set_worker_factor(cmd_parms *cmd, void *dummy,
+                                     const char *arg)
+{
+    double val;
+    char *endptr;
+    const char *err = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+
+    if (err != NULL) {
+        return err;
+    }
+
+    val = strtod(arg, &endptr);
+    if (*endptr) {
+        return "error parsing value";
+    }
+    if (val <= 0) {
+        return "AsyncRequestWorkerFactor argument must be a positive number";
+    }
+
+    worker_factor = val * WORKER_FACTOR_SCALE;
+    if (worker_factor < WORKER_FACTOR_SCALE) {
+        worker_factor = WORKER_FACTOR_SCALE;
+    }
+    return NULL;
+}
+
 static const command_rec motorz_cmds[] = {
 LISTEN_COMMANDS,
 AP_INIT_TAKE1("StartServers", set_daemons_to_start, NULL, RSRC_CONF,
@@ -3042,11 +3228,13 @@ AP_INIT_TAKE1("StartServers", set_daemons_to_start, NULL, RSRC_CONF,
 AP_INIT_TAKE1("ThreadsPerChild", set_threads_per_child, NULL, RSRC_CONF,
               "Number of threads each child creates"),
 AP_INIT_TAKE1("ServerLimit", set_server_limit, NULL, RSRC_CONF,
-  "Maximum number of child processes for this run of Apache - Upper limit for StartServers (default: twice StartServers)"),
+  "Maximum number of child processes for this run of Apache - Upper limit for StartServers (default: the larger of 16 and twice StartServers)"),
 AP_INIT_TAKE1("ThreadLimit", set_thread_limit, NULL, RSRC_CONF,
   "Maximum number of worker threads per child process for this run of Apache - Upper limit for ThreadsPerChild"),
 AP_INIT_TAKE1("PollersPerChild", set_pollers_per_child, NULL, RSRC_CONF,
   "Number of poll threads per child process (0 = auto from online CPUs)"),
+AP_INIT_TAKE1("AsyncRequestWorkerFactor", set_worker_factor, NULL, RSRC_CONF,
+  "Limit concurrent connections per process: ThreadsPerChild plus this factor times the number of idle workers"),
 AP_GRACEFUL_SHUTDOWN_TIMEOUT_COMMAND,
 { NULL }
 };

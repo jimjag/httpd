@@ -122,7 +122,7 @@ will exit.</description>
 <default>GracefulShutdownTimeout 0</default>
 <contextlist><context>server config</context></contextlist>
 <modulelist><module>event</module><module>worker</module>
-<module>prefork</module></modulelist>
+<module>prefork</module><module>motorz</module></modulelist>
 
 <usage>
     <p>The <directive>GracefulShutdownTimeout</directive> specifies
@@ -736,7 +736,8 @@ Apache HTTP Server</a></seealso>
     <p>For the <module>motorz</module> MPM, this directive sets the number of
     process slots, which must cover <directive
     module="mpm_common">StartServers</directive> plus the old processes still
-    finishing connections after a graceful restart; it defaults to twice
+    finishing connections after a graceful restart; it defaults to the larger
+    of 16 and twice
     <directive module="mpm_common">StartServers</directive>.</p>
 
     <p>For the <module>prefork</module> MPM, this directive sets the
