@@ -8,6 +8,7 @@ import struct
 
 import pytest
 
+from pyhttpd.backport import not_backported
 from .env import H2Conf, H2TestEnv
 
 
@@ -82,12 +83,14 @@ class TestGoaway:
     # An idle connection that runs into the server timeout is closed
     # gracefully. The GOAWAY must carry NO_ERROR and not the APR status
     # of the timeout.
+    @not_backported("r1939156", "HTTP/2 error codes in GOAWAY")
     def test_h2_108_01_idle_timeout(self, env):
         error = self._goaway_error(env, self._tls_context())
         assert error == self.ERR_NO_ERROR, f"GOAWAY error code {error}"
 
     # A TLS connection that is not acceptable for HTTP/2 is refused with
     # INADEQUATE_SECURITY (RFC 9113, section 9.2.1).
+    @not_backported("r1939156", "HTTP/2 error codes in GOAWAY")
     def test_h2_108_02_inadequate_security(self, env):
         try:
             ctx = self._tls_context(ciphers='AES128-SHA256', tls12_only=True)
