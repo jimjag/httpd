@@ -6,9 +6,10 @@ for a more flexible testing of Apache httpd.
 Install
 -------
 The Python dependencies (pytest, pyOpenSSL, etc.) are managed with uv
-(https://docs.astral.sh/uv/), which reads pyproject.toml + uv.lock and creates
-a local .venv. Install uv, then let pyhttpd/runtests.sh build the venv on first
-run (it invokes `uv sync` for you); or create it yourself:
+(https://docs.astral.sh/uv/), which reads test/pyproject.toml + test/uv.lock and
+creates test/.venv, shared with pytest_suite. Install uv, then let
+pyhttpd/runtests.sh build the venv on first run (it invokes `uv sync` for you);
+or create it yourself, from test/:
 > uv sync
 
 And for 'h2load':
@@ -277,6 +278,11 @@ have yet carries a mark from `pyhttpd/backport.py` (or, in `pytest_suite/`,
 `not_backported` makes the test an expected failure on a server older than
 2.5.0, `skip_not_backported` skips it where failing would hang or crash the
 server or leave errors in the error log. Neither does anything on trunk.
+Both marks are applied when the tests are collected, by `pyhttpd/gating.py`,
+against the httpd that `pyhttpd/build.py` found (`--apxs`, `--httpd`, or the
+build's `config.ini`); the `need_*` markers of `pytest_suite/` are evaluated
+there too, and a missing module or PHP/SSL support is a missing dependency:
+skipped, or failed under `--strict-optional`.
 
 When the change is backported, add the 2.4.x release it first appears in:
 

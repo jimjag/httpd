@@ -27,28 +27,30 @@ here="$(cd "$(dirname "$0")" && pwd)"
 cd "$here"
 
 # --- ensure the venv exists and is current ----------------------------------
-# The suite baselines on uv (https://docs.astral.sh/uv/) as its dependency and
-# venv manager: it reads pyproject.toml + uv.lock, so there is a single source
-# of truth for dependencies. We invoke .venv/bin/pytest directly rather than
-# `uv run` so the suite works even where `uv run` is shimmed/unavailable.
+# The suites baseline on uv (https://docs.astral.sh/uv/) as their dependency and
+# venv manager: it reads test/pyproject.toml + test/uv.lock, so there is a
+# single source of truth for dependencies, shared by test/modules and
+# test/pytest_suite. We invoke .venv/bin/pytest directly rather than
+# `uv run` so the suites work even where `uv run` is shimmed/unavailable.
 #
-# Create $here/.venv on first run, and rebuild it when pyproject.toml is newer
+# Create test/.venv on first run, and rebuild it when pyproject.toml is newer
 # than the venv (i.e. dependencies changed). Absolute paths throughout, so this
 # behaves identically regardless of the caller's cwd. This block is kept
 # byte-for-byte identical in pytest_suite/runtests.sh and pyhttpd/runtests.sh
 # -- edit both together.
-PYTEST="$here/.venv/bin/pytest"
-if [ ! -x "$PYTEST" ] || [ "$here/pyproject.toml" -nt "$here/.venv" ]; then
+proj="$(dirname "$here")"
+PYTEST="$proj/.venv/bin/pytest"
+if [ ! -x "$PYTEST" ] || [ "$proj/pyproject.toml" -nt "$proj/.venv" ]; then
     if ! command -v uv >/dev/null 2>&1; then
         echo "runtests.sh: ERROR: 'uv' is required but not installed." >&2
         echo "  Install it from https://docs.astral.sh/uv/ and re-run." >&2
         exit 1
     fi
-    echo "runtests.sh: (re)creating $here/.venv via 'uv sync'..." >&2
-    uv sync --project "$here"
+    echo "runtests.sh: (re)creating $proj/.venv via 'uv sync'..." >&2
+    uv sync --project "$proj"
     # Mark the venv as freshly built so the staleness check above won't retrigger
     # until pyproject.toml changes again.
-    touch "$here/.venv"
+    touch "$proj/.venv"
 fi
 
 # --- discover apxs / httpd / php-fpm ----------------------------------------

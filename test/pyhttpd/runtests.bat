@@ -2,8 +2,8 @@
 rem
 rem runtests.bat -- run the pyhttpd modules/ test suite on Windows.
 rem
-rem This is the Windows equivalent of runtests.sh.  It manages a local .venv
-rem under pyhttpd/ so that pytest and the CGI helper scripts (which httpd
+rem This is the Windows equivalent of runtests.sh.  It manages a shared .venv
+rem in test/ so that pytest and the CGI helper scripts (which httpd
 rem forks) both use the same Python with all required packages.
 rem
 rem Usage:
@@ -21,6 +21,8 @@ setlocal enabledelayedexpansion
 set "HERE=%~dp0"
 rem Remove trailing backslash
 if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+rem The venv and pyproject.toml are shared by all suites, in test/ (parent of HERE)
+for %%I in ("%HERE%\..") do set "PROJ=%%~fI"
 
 rem --- python location: find the newest native Windows Python 3.x -------------
 if not defined PYTHON (
@@ -49,13 +51,13 @@ if not defined PYTHON (
 )
 
 rem --- ensure the venv exists and is current ----------------------------------
-set "PYTEST=%HERE%\.venv\Scripts\pytest.exe"
+set "PYTEST=%PROJ%\.venv\Scripts\pytest.exe"
 
 set "NEED_SYNC=0"
 if not exist "%PYTEST%" set "NEED_SYNC=1"
 
-if exist "%HERE%\.venv" (
-    for /f %%F in ('xcopy /D /L /Y "%HERE%\pyproject.toml" "%HERE%\.venv\" 2^>nul ^| C:\Windows\System32\find.exe /c "pyproject.toml"') do (
+if exist "%PROJ%\.venv" (
+    for /f %%F in ('xcopy /D /L /Y "%PROJ%\pyproject.toml" "%PROJ%\.venv\" 2^>nul ^| C:\Windows\System32\find.exe /c "pyproject.toml"') do (
         if %%F gtr 0 set "NEED_SYNC=1"
     )
 ) else (
@@ -70,10 +72,10 @@ if "%NEED_SYNC%"=="1" (
         echo   %PYTHON% -m pip install uv >&2
         exit /b 1
     )
-    echo runtests.bat: ^(re^)creating %HERE%\.venv via 'uv sync'... >&2
-    %PYTHON% -m uv sync --project "%HERE%"
+    echo runtests.bat: ^(re^)creating %PROJ%\.venv via 'uv sync'... >&2
+    %PYTHON% -m uv sync --project "%PROJ%"
     if errorlevel 1 exit /b 1
-    copy /b "%HERE%\.venv" +,, "%HERE%\.venv" >nul 2>&1
+    copy /b "%PROJ%\.venv" +,, "%PROJ%\.venv" >nul 2>&1
 )
 
 rem --- run from test/ (parent of pyhttpd/) ------------------------------------

@@ -73,14 +73,23 @@ The runner exits non-zero if either suite has failures.
 Running a suite directly
 ------------------------
 
-Both runtests.sh scripts create their own virtualenv on first run and can be
+Both suites share one virtualenv, test/.venv, described by test/pyproject.toml
+and test/uv.lock. Both runtests.sh scripts create it on first run and can be
 invoked from any directory -- the paths below are just the convenient way to
-type them. The venv is (re)built automatically whenever it is missing or its
-pyproject.toml has changed, using `uv sync` (uv reads pyproject.toml + uv.lock).
-uv (https://docs.astral.sh/uv/) is required. To force a clean rebuild yourself,
-`rm -rf <suite>/.venv`.
+type them. The venv is (re)built automatically whenever it is missing or
+test/pyproject.toml has changed, using `uv sync`. uv
+(https://docs.astral.sh/uv/) is required. To force a clean rebuild yourself,
+`rm -rf test/.venv`.
 
-pytest_suite (self-contained; the venv holds only pytest + httpx):
+Both suites can also run in a single pytest session, from test/ (modules/
+first, then pytest_suite/tests):
+
+  .venv/bin/pytest --apxs=/path/to/apxs
+
+Write options as --apxs=PATH rather than --apxs PATH: pytest's early argument
+scan takes the value of the second form for a test path.
+
+pytest_suite:
 
   ./pytest_suite/runtests.sh --apxs=/path/to/apxs            # all tests
   ./pytest_suite/runtests.sh --php-fpm=/path/to/php-fpm tests/t/php   # PHP tests

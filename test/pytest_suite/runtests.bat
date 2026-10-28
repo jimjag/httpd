@@ -25,6 +25,8 @@ setlocal enabledelayedexpansion
 set "HERE=%~dp0"
 rem Remove trailing backslash
 if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+rem The venv and pyproject.toml are shared by all suites, in test/ (parent of HERE)
+for %%I in ("%HERE%\..") do set "PROJ=%%~fI"
 
 cd /d "%HERE%"
 
@@ -45,15 +47,15 @@ if not defined PYTHON (
 )
 
 rem --- ensure the venv exists and is current ----------------------------------
-set "PYTEST=%HERE%\.venv\Scripts\pytest.exe"
+set "PYTEST=%PROJ%\.venv\Scripts\pytest.exe"
 
 set "NEED_SYNC=0"
 if not exist "%PYTEST%" set "NEED_SYNC=1"
 
 rem Check if pyproject.toml is newer than .venv (approximate: compare timestamps
 rem via xcopy /D /L which lists files that are newer than the destination).
-if exist "%HERE%\.venv" (
-    for /f %%F in ('xcopy /D /L /Y "%HERE%\pyproject.toml" "%HERE%\.venv\" 2^>nul ^| C:\Windows\System32\find.exe /c "pyproject.toml"') do (
+if exist "%PROJ%\.venv" (
+    for /f %%F in ('xcopy /D /L /Y "%PROJ%\pyproject.toml" "%PROJ%\.venv\" 2^>nul ^| C:\Windows\System32\find.exe /c "pyproject.toml"') do (
         if %%F gtr 0 set "NEED_SYNC=1"
     )
 ) else (
@@ -68,11 +70,11 @@ if "%NEED_SYNC%"=="1" (
         echo   %PYTHON% -m pip install uv >&2
         exit /b 1
     )
-    echo runtests.bat: ^(re^)creating %HERE%\.venv via 'uv sync'... >&2
-    %PYTHON% -m uv sync --project "%HERE%"
+    echo runtests.bat: ^(re^)creating %PROJ%\.venv via 'uv sync'... >&2
+    %PYTHON% -m uv sync --project "%PROJ%"
     if errorlevel 1 exit /b 1
     rem Touch .venv so the staleness check won't retrigger
-    copy /b "%HERE%\.venv" +,, "%HERE%\.venv" >nul 2>&1
+    copy /b "%PROJ%\.venv" +,, "%PROJ%\.venv" >nul 2>&1
 )
 
 rem --- discover apxs / httpd / php-fpm ----------------------------------------

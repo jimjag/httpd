@@ -3,10 +3,14 @@
 > **Provenance / how this fits in `test/`.** This `pytest_suite/` is a
 > self-contained snapshot ported from the `httpd-tests` repository (the Python
 > port of the classic Perl `Apache::Test` suite). It **coexists alongside**
-> `test/pyhttpd/` and `test/modules/` — it does *not* use pyhttpd's framework
-> or its root `conftest.py`. It has its own `conftest.py` and `pyproject.toml`,
-> so pytest treats this directory as its own rootdir; run it from here (or via
-> `test/run-all-tests.sh`), never by pointing pytest at `test/` as a whole.
+> `test/pyhttpd/` and `test/modules/` — it does *not* use pyhttpd's test
+> framework. It has its own `conftest.py` and `apache_pytest` framework package,
+> but shares the Python environment (`test/pyproject.toml`, `test/uv.lock`,
+> `test/.venv`) and the pytest configuration with the other suite, and the
+> command-line options of both suites are registered by `test/pyhttpd/plugin.py`.
+> pytest's rootdir is therefore `test/`; run this suite from here, via
+> `test/run-all-tests.sh`, or together with `modules/` in one `pytest` session
+> from `test/`.
 > The two suites are complementary: this one covers the classic core/modules/
 > security/SSL/PHP tests; pyhttpd covers HTTP/2, mod_md (ACME), HTTP/1 and proxy.
 > To re-sync from upstream, re-copy the source tree (source files only — exclude
@@ -28,8 +32,9 @@ optionally, a **`php-fpm`** binary for the PHP tests.
 
 ```sh
 # 1. Create the virtualenv (pytest + httpx). Needs `uv` (https://docs.astral.sh/uv/);
-#    reads pyproject.toml + uv.lock. runtests.sh also does this for you on first run.
-uv sync
+#    reads ../pyproject.toml + ../uv.lock (shared with test/modules). runtests.sh also
+#    does this for you on first run.
+uv sync --project ..
 
 # 2. Run the whole suite against your httpd build.
 ./runtests.sh --apxs /path/to/your/httpd/bin/apxs
@@ -54,7 +59,7 @@ stale CGI socket, and forwards any extra arguments to pytest.
 
 | Requirement | How it's provided | Notes |
 |---|---|---|
-| Python ≥ 3.11 + pytest + httpx | `uv sync` (uses `pyproject.toml` / `uv.lock`) | The only Python deps. |
+| Python ≥ 3.11 + pytest + httpx | `uv sync` (uses `test/pyproject.toml` / `test/uv.lock`) | The only Python deps. |
 | A built Apache httpd | `--apxs` / `--httpd` (or `APXS` / `HTTPD` env) | The server under test. Built with shared modules so the suite can load them. |
 | `php-fpm` (optional) | `--php-fpm` (or `PHP_FPM` env) | Any PHP 7/8 version. Without it, the PHP tests skip. |
 | `openssl` CLI | auto (on `$PATH`) | Used to generate the test SSL CA/certs. |
@@ -318,12 +323,15 @@ If a test needs server configuration or files served from disk:
 
 ## Notes & gotchas
 
-* **`uv run` vs the venv.** `runtests.sh` invokes `.venv/bin/pytest` directly so
+* **`uv run` vs the venv.** `runtests.sh` invokes `test/.venv/bin/pytest` directly so
   it works in environments where `uv run` is shimmed/unavailable. If you call
-  pytest yourself, use `.venv/bin/pytest` (or activate the venv).
+  pytest yourself, use `../.venv/bin/pytest` (or activate the venv).
+* **Write options as `--apxs=PATH`**, not `--apxs PATH`, when calling pytest
+  yourself: pytest's early argument scan cannot yet tell that the second form's
+  value is not a test path, and picks the wrong rootdir. `runtests.sh` does this.
 * **Same-named test modules** across categories (e.g. `ssl/test_all.py` and
   `php/test_all.py`) coexist thanks to `--import-mode=importlib` +
-  `pythonpath=["."]` in `pyproject.toml`.
+  `pythonpath` in `test/pyproject.toml`.
 * **Stale CGI socket.** A killed run can leave `t/logs/cgisock*`, which breaks a
   fresh start; `runtests.sh` removes it automatically.
 * **No orphans.** The server is launched in its own process group and reaped on
