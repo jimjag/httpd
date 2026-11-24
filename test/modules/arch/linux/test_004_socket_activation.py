@@ -1,8 +1,11 @@
 import pytest
 
+from pyhttpd.backport import not_backported
+
 from .env import ActivatedServer
 
 
+@not_backported("r1937596-r1937647", "mod_systemd watchdog, notify and socket activation")
 class TestSystemdSocketActivation:
     """Listening sockets passed in by the service manager.
 
@@ -17,7 +20,8 @@ class TestSystemdSocketActivation:
     """
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         # The activated servers use the same server root; keep the one
         # started by other tests out of the way.
         assert env.apache_stop() == 0

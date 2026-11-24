@@ -90,10 +90,54 @@ def env(pytestconfig) -> AAATestEnv:
         f'AuthUserFile "{pwfile}"',
         'AuthDigestDomain "/digest/domain/" "https://mirror.example.org/other/"',
     ]))
+    # Tracks clients like "nccheck", but with a domain; a client crossing
+    # between the two is still the same user (test_015).
+    conf.add(_digest_dir(docs, "nccheck-domain", [
+        'AuthDigestProvider file',
+        f'AuthUserFile "{pwfile}"',
+        'AuthDigestNcCheck On',
+        'AuthDigestDomain "/digest/nccheck-domain/"',
+    ]))
     conf.add(_digest_dir(docs, "noprovider", [
         # AuthDigestProvider intentionally omitted: falls back to "file".
         f'AuthUserFile "{pwfile}"',
     ]))
+    # A request which fails header validation (e.g. no Host on HTTP/1.1)
+    # is answered before the Digest module's post_read_request runs, so it
+    # has no per-request Digest record; an ErrorDocument redirecting it into
+    # a Digest-protected location must not then dereference that record.
+    # Only configured where that is fixed (r1939032): earlier code does
+    # dereference the missing record.
+    if env.httpd_is_at_least("2.5.0"):
+        conf.add('ErrorDocument 400 /digest/default/secret.txt')
+    # A reverse-proxied location which authenticates with Digest at the
+    # proxy (so the backend is never reached and need not be reachable).
+    # The challenge is an origin-style WWW-Authenticate, so AuthDigestDomain
+    # applies to it just as for a non-proxied location.
+    conf.add([
+        'ProxyPass "/pxdomain/" "http://127.0.0.1:1/unused/"',
+        '<Location "/pxdomain/">',
+        '    AuthType Digest',
+        f'    AuthName "{AAATestEnv.REALM}"',
+        '    AuthDigestProvider file',
+        f'    AuthUserFile "{pwfile}"',
+        '    AuthDigestDomain "/pxdomain/"',
+        '    Require valid-user',
+        '</Location>',
+    ])
+    # A second server with the same realm but its own accounts, on its own
+    # port so that the main server keeps the rest. The main server's
+    # <Directory> sections apply here too; this one overrides the password
+    # file for the nccheck location.
+    conf.add(f'Listen {env.http_port2}')
+    conf.start_vhost(domains=[f"aaa2.{env.http_tld}"], port=env.http_port2,
+                     doc_root=docs)
+    conf.add(_digest_dir(docs, "nccheck", [
+        'AuthDigestProvider file',
+        f'AuthUserFile "{env.digest_pwfile2}"',
+        'AuthDigestNcCheck On',
+    ]))
+    conf.end_vhost()
     conf.install()
     assert env.apache_restart() == 0
     return env

@@ -113,7 +113,9 @@ static void modssl_ctx_init(modssl_ctx_t *mctx, apr_pool_t *p)
     mctx->sc                  = NULL; /* set during module init */
 
     mctx->ssl_ctx             = NULL; /* set during module init */
+#if MODSSL_HAVE_OPENSSL_STORE
     mctx->libctx              = NULL; /* set during module init */
+#endif
 
     mctx->pks                 = NULL;
     mctx->pkp                 = NULL;
@@ -974,6 +976,7 @@ static const char *ssl_cmd_check_file(cmd_parms *parms,
 static const char *ssl_cmd_check_uri(cmd_parms *parms,
                                      const char *uri)
 {
+#if MODSSL_HAVE_OPENSSL_STORE
     OSSL_STORE_CTX *ctx;
     unsigned long err;
     int reason;
@@ -1005,6 +1008,7 @@ static const char *ssl_cmd_check_uri(cmd_parms *parms,
     }
 
     ERR_clear_error();
+#endif
 
     return NULL;
 }
@@ -1641,6 +1645,9 @@ const char *ssl_cmd_SSLRequire(cmd_parms *cmd,
     info->filename = cmd->directive->filename;
     info->line_number = cmd->directive->line_num;
     info->module_index = APLOG_MODULE_INDEX;
+    if (cmd->pool == cmd->temp_pool) {
+        info->flags |= AP_EXPR_FLAG_RESTRICTED_FILE_FUNC;
+    }
     errstring = ap_expr_parse(cmd->pool, cmd->temp_pool, info, arg, NULL);
     if (errstring) {
         return apr_pstrcat(cmd->pool, "SSLRequire: ", errstring, NULL);

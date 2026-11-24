@@ -2,13 +2,19 @@ import time
 
 import pytest
 
+from pyhttpd.backport import not_backported
+
+from pyhttpd.depends import needs_dependency
+
 from .env import MONITOR_STATUS, MONITOR_TIMEOUT, TransientService, http_responds
 
-pytestmark = pytest.mark.skipif(
-    not TransientService.is_available(),
-    reason="no per-user systemd manager to run a transient service under")
+pytestmark = needs_dependency(
+    "systemd --user manager", TransientService.is_available(),
+    reason="no per-user systemd manager to run a transient service under",
+    detected="systemd-run --user is not usable here")
 
 
+@not_backported("r1937596-r1937647", "mod_systemd watchdog, notify and socket activation")
 class TestSystemdService:
     """httpd as a real systemd service, end to end.
 
@@ -18,7 +24,8 @@ class TestSystemdService:
     """
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         assert env.apache_stop() == 0
         yield
         assert env.apache_stop() == 0

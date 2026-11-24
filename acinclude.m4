@@ -82,7 +82,7 @@ AC_DEFUN([APACHE_GEN_CONFIG_VARS],[
   APACHE_SUBST(LIBTOOL)
   APACHE_SUBST(SHELL)
   APACHE_SUBST(RSYNC)
-  APACHE_SUBST(SVN)
+  APACHE_SUBST(GIT)
   APACHE_SUBST(MODULE_DIRS)
   APACHE_SUBST(MODULE_CLEANDIRS)
   APACHE_SUBST(PORT)
@@ -107,8 +107,6 @@ AC_DEFUN([APACHE_GEN_CONFIG_VARS],[
   APACHE_SUBST(APU_INCLUDEDIR)
   APACHE_SUBST(APU_VERSION)
   APACHE_SUBST(APU_CONFIG)
-  APACHE_SUBST(APREQ_MAJOR_VERSION)
-  APACHE_SUBST(APREQ_LIBTOOL_VERSION)
 
   abs_srcdir="`(cd $srcdir && pwd)`"
 
@@ -1066,8 +1064,14 @@ AC_DEFUN([APACHE_CHECK_JANSSON],[
     CPPFLAGS="$saved_CPPFLAGS"
     LIBS="$saved_LIBS"
     LDFLAGS="$saved_LDFLAGS"
+
+    dnl cache MOD_LDFLAGS, MOD_CFLAGS
+    ap_jansson_mod_cflags=$MOD_CFLAGS
+    ap_jansson_mod_ldflags=$MOD_LDFLAGS
   ])
   if test "x$ac_cv_jansson" = "xyes"; then
     AC_DEFINE(HAVE_JANSSON, 1, [Define if jansson is available])
+    APR_ADDTO(MOD_LDFLAGS, [$ap_jansson_mod_ldflags])
+    APR_ADDTO(MOD_CFLAGS, [$ap_jansson_mod_cflags])
   fi
 ])

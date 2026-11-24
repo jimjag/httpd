@@ -5,11 +5,12 @@ from .env import H2Conf, H2TestEnv
 
 
 @pytest.mark.skipif(condition=H2TestEnv.is_unsupported(), reason="mod_http2 not supported here")
-@pytest.mark.skipif(not H2TestEnv().has_nghttp(), reason="nghttp not available")
+@H2TestEnv.needs_nghttp()
 class TestGet:
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         H2Conf(env).add_vhost_cgi(
             proxy_self=True, h2proxy_self=True
         ).add_vhost_test1(

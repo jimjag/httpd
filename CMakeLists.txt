@@ -78,6 +78,12 @@ ELSE()
   SET(default_nghttp2_libraries "${CMAKE_INSTALL_PREFIX}/lib/nghttp2.lib")
 ENDIF()
 
+IF(EXISTS "${CMAKE_INSTALL_PREFIX}/lib/nghttp3d.lib")
+  SET(default_nghttp3_libraries "${CMAKE_INSTALL_PREFIX}/lib/nghttp3d.lib")
+ELSE()
+  SET(default_nghttp3_libraries "${CMAKE_INSTALL_PREFIX}/lib/nghttp3.lib")
+ENDIF()
+
 IF(EXISTS "${CMAKE_INSTALL_PREFIX}/lib/brotlienc.lib")
   SET(default_brotli_libraries "${CMAKE_INSTALL_PREFIX}/lib/brotlienc.lib" "${CMAKE_INSTALL_PREFIX}/lib/brotlicommon.lib")
 ELSE()
@@ -108,6 +114,10 @@ SET(APR_INCLUDE_DIR       "${CMAKE_INSTALL_PREFIX}/include" CACHE STRING "Direct
 SET(APR_LIBRARIES         ${default_apr_libraries}       CACHE STRING "APR libraries to link with")
 SET(NGHTTP2_INCLUDE_DIR   "${CMAKE_INSTALL_PREFIX}/include" CACHE STRING "Directory with NGHTTP2 include files within nghttp2 subdirectory")
 SET(NGHTTP2_LIBRARIES     ${default_nghttp2_libraries}   CACHE STRING "NGHTTP2 libraries to link with")
+SET(NGHTTP3_INCLUDE_DIR   "${CMAKE_INSTALL_PREFIX}/include" CACHE STRING "Directory with NGHTTP3 include files within nghttp3 subdirectory")
+SET(NGHTTP3_LIBRARIES     ${default_nghttp3_libraries}   CACHE STRING "NGHTTP3 libraries to link with")
+SET(NGTCP2_INCLUDE_DIR    "${CMAKE_INSTALL_PREFIX}/include" CACHE STRING "Directory with NGTCP2 include files within ngtcp2 subdirectory")
+SET(NGTCP2_LIBRARIES      "${CMAKE_INSTALL_PREFIX}/lib/ngtcp2.lib" "${CMAKE_INSTALL_PREFIX}/lib/ngtcp2_crypto_ossl.lib" CACHE STRING "NGTCP2 libraries to link with")
 SET(PCRE_CFLAGS           "${default_pcre_cflags}"       CACHE STRING "PCRE flags for util_pcre.c compilation")
 SET(PCRE_INCLUDE_DIR      "${CMAKE_INSTALL_PREFIX}/include" CACHE STRING "Directory with PCRE include files")
 SET(PCRE_LIBRARIES        ${default_pcre_libraries}      CACHE STRING "PCRE libraries to link with")
@@ -224,6 +234,30 @@ ELSE()
   SET(NGHTTP2_FOUND FALSE)
 ENDIF()
 
+# See if nghttp3 exists in a configured or defaulted location
+SET(NGHTTP3_FOUND TRUE)
+IF(EXISTS "${NGHTTP3_INCLUDE_DIR}/nghttp3/nghttp3.h")
+  FOREACH(onelib ${NGHTTP3_LIBRARIES})
+    IF(NOT EXISTS ${onelib})
+      SET(NGHTTP3_FOUND FALSE)
+    ENDIF()
+  ENDFOREACH()
+ELSE()
+  SET(NGHTTP3_FOUND FALSE)
+ENDIF()
+
+# See if ngtcp2 exists in a configured or defaulted location
+SET(NGTCP2_FOUND TRUE)
+IF(EXISTS "${NGTCP2_INCLUDE_DIR}/ngtcp2/ngtcp2_crypto_ossl.h")
+  FOREACH(onelib ${NGTCP2_LIBRARIES})
+    IF(NOT EXISTS ${onelib})
+      SET(NGTCP2_FOUND FALSE)
+    ENDIF()
+  ENDFOREACH()
+ELSE()
+  SET(NGTCP2_FOUND FALSE)
+ENDIF()
+
 # See if we have Brotli
 SET(BROTLI_FOUND TRUE)
 IF(EXISTS "${BROTLI_INCLUDE_DIR}/brotli/encode.h")
@@ -267,6 +301,8 @@ MESSAGE(STATUS "")
 MESSAGE(STATUS "LIBXML2_FOUND ............ : ${LIBXML2_FOUND}")
 MESSAGE(STATUS "LUA51_FOUND .............. : ${LUA51_FOUND}")
 MESSAGE(STATUS "NGHTTP2_FOUND ............ : ${NGHTTP2_FOUND}")
+MESSAGE(STATUS "NGHTTP3_FOUND ............ : ${NGHTTP3_FOUND}")
+MESSAGE(STATUS "NGTCP2_FOUND ............. : ${NGTCP2_FOUND}")
 MESSAGE(STATUS "OPENSSL_FOUND ............ : ${OPENSSL_FOUND}")
 MESSAGE(STATUS "ZLIB_FOUND ............... : ${ZLIB_FOUND}")
 MESSAGE(STATUS "BROTLI_FOUND ............. : ${BROTLI_FOUND}")
@@ -369,6 +405,7 @@ SET(MODULE_LIST
   "modules/generators/mod_status+I+process/thread monitoring"
   "modules/http/mod_mime+A+mapping of file-extension to MIME.  Disabling this module is normally not recommended."
   "modules/http2/mod_http2+i+HTTP/2 protocol support"
+  "modules/http3/mod_http3+i+HTTP/3 protocol support"
   "modules/ldap/mod_ldap+i+LDAP caching and connection pooling services"
   "modules/loggers/mod_log_config+A+logging configuration.  You won't be able to log requests to the server without this module."
   "modules/loggers/mod_log_debug+I+configurable debug logging"
@@ -390,7 +427,7 @@ SET(MODULE_LIST
   "modules/metadata/mod_expires+I+Expires header control"
   "modules/metadata/mod_headers+A+HTTP header control"
   "modules/metadata/mod_ident+O+RFC 1413 identity check"
-  "modules/metadata/mod_mime_magic+O+automagically determining MIME type"
+  "modules/metadata/mod_mime_magic+I+automagically determining MIME type"
   "modules/metadata/mod_remoteip+I+translate header contents to an apparent client remote_ip"
   "modules/metadata/mod_setenvif+A+basing ENV vars on headers"
   "modules/metadata/mod_unique_id+I+per-request unique ids"
@@ -410,6 +447,7 @@ SET(MODULE_LIST
   "modules/proxy/mod_proxy_hcheck+I+Apache proxy Health check module.  Requires and is enabled by --enable-proxy."
   "modules/proxy/mod_proxy_http+I+Apache proxy HTTP module.  Requires and is enabled by --enable-proxy."
   "modules/proxy/mod_proxy_scgi+I+Apache proxy SCGI module.  Requires and is enabled by --enable-proxy."
+  "modules/proxy/mod_proxy_uwsgi+I+Apache proxy SCGI module.  Requires and is enabled by --enable-proxy."
   "modules/proxy/mod_proxy_wstunnel+I+Apache proxy Websocket Tunnel module.  Requires and is enabled by --enable-proxy."
   "modules/http2/mod_proxy_http2+i+Apache proxy HTTP/2 module.  Requires --enable-proxy."
   "modules/proxy/mod_serf+O+Reverse proxy module using Serf"
@@ -552,6 +590,22 @@ SET(mod_http2_extra_sources
   modules/http2/h2_util.c            modules/http2/h2_workers.c
   modules/http2/h2_ws.c
 )
+SET(mod_http3_requires               NGHTTP3_FOUND NGTCP2_FOUND)
+SET(mod_http3_extra_includes         ${NGHTTP3_INCLUDE_DIR} ${NGTCP2_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/modules/http3/include ${OPENSSL_INCLUDE_DIR})
+SET(mod_http3_extra_libs             ${NGHTTP3_LIBRARIES} ${NGTCP2_LIBRARIES} ${OPENSSL_LIBRARIES})
+SET(mod_http3_main_source            modules/http3/mod_http3.c)
+SET(mod_http3_extra_sources
+  modules/http3/h3_callbacks.c     modules/http3/h3_config.c
+  modules/http3/h3_filter.c        modules/http3/h3_hooks.c
+  modules/http3/h3_io.c            modules/http3/h3_request.c
+  modules/http3/h3_server.c        modules/http3/h3_session.c
+  modules/http3/h3_socket.c        modules/http3/h3_socket_os.c
+  modules/http3/h3_socket_bpf.c
+  modules/http3/h3_stream.c        modules/http3/h3_threads.c
+  modules/http3/quic/h3q.c         modules/http3/quic/h3q_conn.c
+  modules/http3/quic/h3q_stream.c
+  modules/http3/quic/detail/h3q_tls.c
+)
 SET(mod_ldap_extra_defines           LDAP_DECLARE_EXPORT)
 SET(mod_ldap_extra_libs              wldap32)
 SET(mod_ldap_extra_sources
@@ -609,6 +663,7 @@ IF(LIBXML2_FOUND)
   SET(mod_proxy_html_extra_libs        "${LIBXML2_LIBRARIES};${LIBXML2_ICONV_LIBRARIES}")
 ENDIF()
 SET(mod_proxy_scgi_extra_libs        mod_proxy)
+SET(mod_proxy_uwsgi_extra_libs        mod_proxy)
 SET(mod_proxy_wstunnel_extra_libs    mod_proxy)
 SET(mod_lbmethod_bybusyness_extra_libs mod_proxy)
 SET(mod_lbmethod_bytraffic_extra_libs  mod_proxy)
@@ -1076,6 +1131,7 @@ IF(OPENSSL_FOUND AND CURL_FOUND AND JANSSON_FOUND)
   SET_TARGET_PROPERTIES(a2md PROPERTIES INCLUDE_DIRECTORIES "${tmp_includes}")
   TARGET_COMPILE_DEFINITIONS(a2md PRIVATE
       "APP_FILE"
+      "MD_A2MD_BUILD"
       "LONG_NAME=Apache HTTP Server a2md program"
       "BIN_NAME=a2md.exe"
   )
@@ -1127,13 +1183,20 @@ IF(CHECK_FOUND)
                      BYPRODUCTS "${CMAKE_BINARY_DIR}/test/httpdunit.cases")
 ENDIF()
 
-# getting duplicate manifest error with ApacheMonitor
-# ADD_EXECUTABLE(ApacheMonitor support/win32/ApacheMonitor.c support/win32/ApacheMonitor.rc)
-# SET(install_targets ${install_targets} ApacheMonitor)
-# SET(install_bin_pdb ${install_bin_pdb} $<TARGET_PDB_FILE:ApacheMonitor>)
-# SET_TARGET_PROPERTIES(ApacheMonitor PROPERTIES WIN32_EXECUTABLE TRUE)
-# SET_TARGET_PROPERTIES(ApacheMonitor PROPERTIES COMPILE_FLAGS "-DAPP_FILE -DLONG_NAME=ApacheMonitor -DBIN_NAME=ApacheMonitor.exe ${EXTRA_COMPILE_FLAGS}")
-# TARGET_LINK_LIBRARIES(ApacheMonitor ${EXTRA_LIBS} ${HTTPD_SYSTEM_LIBS} comctl32 wtsapi32)
+ADD_EXECUTABLE(ApacheMonitor support/win32/ApacheMonitor.c support/win32/ApacheMonitor.rc)
+SET(install_targets ${install_targets} ApacheMonitor)
+SET(install_bin_pdb ${install_bin_pdb} $<TARGET_PDB_FILE:ApacheMonitor>)
+SET_TARGET_PROPERTIES(ApacheMonitor PROPERTIES WIN32_EXECUTABLE TRUE)
+SET_TARGET_PROPERTIES(ApacheMonitor PROPERTIES COMPILE_FLAGS "-DAPP_FILE -DLONG_NAME=ApacheMonitor -DBIN_NAME=ApacheMonitor.exe ${EXTRA_COMPILE_FLAGS}")
+SET_TARGET_PROPERTIES(ApacheMonitor PROPERTIES LINK_FLAGS "/MANIFEST:NO") # do not emit intermediate manifest
+TARGET_LINK_LIBRARIES(ApacheMonitor ${EXTRA_LIBS} ${HTTPD_SYSTEM_LIBS} comctl32 wtsapi32)
+
+ADD_EXECUTABLE(wintty support/win32/wintty.c build/win32/httpd.rc)
+SET(install_targets ${install_targets} wintty)
+SET(install_bin_pdb ${install_bin_pdb} $<TARGET_PDB_FILE:wintty>)
+SET_TARGET_PROPERTIES(wintty PROPERTIES COMPILE_FLAGS "-DAPP_FILE -DLONG_NAME=wintty -DBIN_NAME=wintty.exe ${EXTRA_COMPILE_FLAGS}")
+TARGET_LINK_LIBRARIES(wintty ${EXTRA_LIBS} ${HTTPD_SYSTEM_LIBS})
+
 
 ###########  CONFIGURATION FILES ###########
 # Set up variables used in the .conf file templates

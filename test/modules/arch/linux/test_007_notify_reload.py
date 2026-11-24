@@ -3,19 +3,26 @@ import time
 
 import pytest
 
+from pyhttpd.backport import not_backported
+
+from pyhttpd.depends import needs_dependency
+
 from .env import (NOTIFY_RELOAD_VERSION, TransientService, error_log_since,
                   error_log_size, http_responds, systemd_version)
 
 pytestmark = [
-    pytest.mark.skipif(
-        not TransientService.is_available(),
-        reason="no per-user systemd manager to run a transient service under"),
+    needs_dependency(
+        "systemd --user manager", TransientService.is_available(),
+        reason="no per-user systemd manager to run a transient service under",
+        detected="systemd-run --user is not usable here"),
+    # a version gate, not a missing dependency: keeps skipping when strict
     pytest.mark.skipif(
         systemd_version() < NOTIFY_RELOAD_VERSION,
         reason=f"Type=notify-reload needs systemd {NOTIFY_RELOAD_VERSION}"),
 ]
 
 
+@not_backported("r1937596-r1937647", "mod_systemd watchdog, notify and socket activation")
 class TestNotifyReload:
     """httpd as a Type=notify-reload unit.
 
@@ -45,7 +52,8 @@ class TestNotifyReload:
     """
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         assert env.apache_stop() == 0
         yield
         assert env.apache_stop() == 0

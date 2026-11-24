@@ -1,7 +1,13 @@
 #!/bin/bash -xe
 
-: Travis tag = ${TRAVIS_TAG}
-: Travis branch = ${TRAVIS_BRANCH}
+# The 2.4.x workflow caches ~/root under a key which does not name what is
+# in it, and sets CLEAR_CACHE for the jobs which must start afresh.
+if test -v CLEAR_CACHE; then
+    rm -rf $HOME/root
+fi
+
+# The 2.4.x workflow does not set MFLAGS.
+: ${MFLAGS=-j2}
 
 : /etc/hosts --
 cat /etc/hosts
@@ -17,111 +23,86 @@ if grep ip6-localhost /etc/hosts; then
     cat /etc/hosts
 fi
 
-# Echo the object ID (hash) of the commit to build for $1 at version
-# $2, or "tarball" if a release tarball is used instead of a checkout.
-function resolve_apx() {
-    local name=$1
-    local version=$2
-    local ref commit
-
-    if test -v TEST_APR_TARBALL; then
-        echo tarball
-        return 0
-    fi
-
-    # For a branch, prefer the commit already resolved by
-    # gha-resolve-deps.sh for the cache key; resolving it again here
-    # would race with the branch moving in the meantime.  Tags are
-    # immutable so they are always resolved below.
-    case $name in
-       apr)      commit=${APR_COMMIT-} ;;
-       apr-util) commit=${APU_COMMIT-} ;;
-    esac
-    if test -n "$commit"; then
-        echo ${commit}
-        return 0
-    fi
-
-    case $version in
-       trunk|*.x) ref=refs/heads/${version} ;;
-       *) ref=refs/tags/${version} ;;
-    esac
-
-    commit=`git ls-remote https://github.com/apache/${name}.git ${ref} | cut -f1`
-    if test -z "$commit"; then
-       : Could not determine latest commit hash for ${ref} in ${name} - check branch is valid?
-       exit 1
-    fi
-
-    echo ${commit}
-}
-
-# Unpack the source for $1 at version $2, commit $3, into
-# $HOME/build/$1-$2, running ./buildconf with the arguments in $4.  Does
-# nothing if the source tree is already present.  Note $HOME/build is
-# not cached, unlike the install root in $HOME/root.
-function fetch_apx() {
-    local name=$1
-    local version=$2
-    local commit=$3
-    local buildconf=$4
-    local build=${HOME}/build/${name}-${version}
-
-    if test -d ${build}; then
-        return 0
-    fi
-
-    mkdir -p ${HOME}/build
-
-    if test -v TEST_APR_TARBALL; then
-         curl https://archive.apache.org/dist/apr/${name}-${version}.tar.gz > apx.tar.gz
-         tar -C ${HOME}/build -xzf apx.tar.gz
-         rm apx.tar.gz
-    else
-         git init -q ${build}
-         pushd $build
-         # Clone and checkout the commit identified above.
-         git remote add origin https://github.com/apache/${name}.git
-         git fetch -q --depth=1 origin ${commit}
-         git checkout ${commit}
-         ./buildconf ${buildconf}
-         popd
-    fi
-}
-
+# Build and install $1 at version $2 into the cached
+# $HOME/root/$1-$2, configured with the arguments in $3 and bootstrapped
+# with ./buildconf $4, unless it was restored from the cache.  The
+# source goes in $HOME/build, which is not cached; it is a git checkout
+# or, with TEST_APR_TARBALL, the release tarball.
+#
+# The cache key covers APR and APR-util together, along with the
+# configuration, $CC and, for a branch, the commit which
+# gha-resolve-deps.sh resolved it to, so an install restored here is
+# usable as-is.  The build uses that same commit, since resolving the
+# branch again would race with it moving.
 function install_apx() {
     local name=$1
     local version=$2
-    local prefix=${HOME}/root/${name}-${version}
-    local build=${HOME}/build/${name}-${version}
     local config=$3
     local buildconf=$4
-    local commit
+    local prefix=${HOME}/root/${name}-${version}
+    local build=${HOME}/build/${name}-${version}
+    local giturl=https://github.com/apache/${name}.git
+    local ref commit=tarball
 
-    # The cache key covers the version, the resolved commit for a branch
-    # build, the configuration and $CC, and is only written once the
-    # build has succeeded, so anything restored here is usable as-is.
+    if ! test -v TEST_APR_TARBALL; then
+        case ${name}:${version} in
+           apr:trunk|apr:*.x) ref=${APR_COMMIT:-refs/heads/${version}} ;;
+           apr-util:trunk|apr-util:*.x) ref=${APU_COMMIT:-refs/heads/${version}} ;;
+           *) ref=refs/tags/${version} ;;
+        esac
+    fi
+
+    # Without $ROOTID (see gha-resolve-deps.sh) the cache key does not say
+    # what was built, so an install restored here may be stale or built
+    # otherwise: pin the ref to a commit, and rebuild unless that commit,
+    # the configuration and $CC are those the install was made from.
+    if ! test -v ROOTID; then
+        if ! test -v TEST_APR_TARBALL; then
+            commit=${ref}
+            if ! [[ ${commit} =~ ^[0-9a-f]{40}$ ]]; then
+                commit=`git ls-remote ${giturl} ${ref} | cut -f1`
+                if test -z "$commit"; then
+                    : Could not determine latest commit hash for ${ref} in ${giturl} - check branch is valid?
+                    exit 1
+                fi
+                ref=${commit}
+            fi
+        fi
+        grep -q "${version} ${commit} ${config} CC=$CC" ${HOME}/root/.key-${name} || rm -rf ${prefix}
+    fi
+
     if test -d ${prefix}; then
         return 0
     fi
 
-    commit=`resolve_apx ${name} ${version}`
-
-    # apr-util's buildconf needs APR's source tree, which is not cached.
-    # If APR itself was restored from the cache it was never built here,
-    # so fetch the source now - otherwise a stale APR-util alongside a
-    # fresh APR cannot be rebuilt.
-    if test ${name} = apr-util -a ! -d ${HOME}/build/apr-${APR_VERSION}; then
-        fetch_apx apr ${APR_VERSION} `resolve_apx apr ${APR_VERSION}`
+    if test -v TEST_APR_TARBALL; then
+        mkdir -p ${HOME}/build
+        curl https://archive.apache.org/dist/apr/${name}-${version}.tar.gz |
+            tar -C ${HOME}/build -xzf -
+        pushd ${build}
+    else
+        mkdir -p ${build}
+        pushd ${build}
+        git init -q
+        git fetch -q --depth=1 ${giturl} ${ref}
+        git checkout -q FETCH_HEAD
+        ./buildconf ${buildconf}
     fi
-
-    fetch_apx ${name} ${version} ${commit} "${buildconf}"
-
-    pushd ${build}
     ./configure --prefix=${prefix} ${config}
-    make -j2
+    # glibc's C23 const-preserving strrchr() et al trip
+    # -Wdiscarded-qualifiers in APR 1.7.x.
+    case " ${NOTEST_CFLAGS-} " in
+    *" -Werror "*)
+        make $MFLAGS NOTEST_CFLAGS="${NOTEST_CFLAGS} -Wno-error=discarded-qualifiers" ;;
+    *)
+        make $MFLAGS ;;
+    esac
     make install
     popd
+
+    if ! test -v ROOTID; then
+        echo ${version} ${commit} "${config}" "CC=${CC}" > ${HOME}/root/.key-${name}
+    fi
 }
 
 # Allow to load $HOME/build/apache/httpd/.gdbinit
@@ -130,6 +111,9 @@ echo "add-auto-load-safe-path $HOME/work/httpd/httpd/.gdbinit" >> $HOME/.gdbinit
 # Unless either SKIP_TESTING or NO_TEST_FRAMEWORK are set, install
 # CPAN modules required to run the Perl test framework.
 if ! test -v SKIP_TESTING -o -v NO_TEST_FRAMEWORK; then
+    # Clear CPAN cache if necessary
+    if [ -v CLEAR_CACHE ]; then rm -rf ~/perl5; fi
+
     if ! perl -V > perlver; then
         : Perl binary broken
         perl -V
@@ -142,17 +126,12 @@ if ! test -v SKIP_TESTING -o -v NO_TEST_FRAMEWORK; then
     # module.
     if ! cmp -s perlver ~/perl5/.perlver; then
         : Purging cache since "perl -V" output has changed
-        # $PERLID covers this in the cache key, so it should now only
-        # fire for a cold cache; show what changed if it fires anyway.
-        if test -f ~/perl5/.perlver; then
-            diff -u ~/perl5/.perlver perlver || true
-        fi
         rm -rf ~/perl5
     fi
-    
+
     cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)
 
-    pkgs="Net::SSL LWP::Protocol::https                                 \
+    pkgs="LWP::Protocol::https                                          \
            LWP::Protocol::AnyEvent::http ExtUtils::Embed Test::More     \
            AnyEvent DateTime HTTP::DAV FCGI                             \
            AnyEvent::WebSocket::Client Apache::Test"
@@ -185,42 +164,71 @@ fi
 
 # Build the requested version of OpenSSL if it's not already installed
 # in the cached ~/root
-if test -v TEST_OPENSSL3; then
-    # The cache key covers $TEST_OPENSSL3, $OPENSSL_CONFIG and, for a
+if test -v TEST_OPENSSL; then
+    # The cache key covers $TEST_OPENSSL, $OPENSSL_CONFIG and, for a
     # branch build, the resolved commit, so an install found here is
-    # current.
-    if ! test -d $HOME/root/openssl3; then
+    # current.  Without $ROOTID it does not, so the commit built is
+    # recorded, and a build of a branch is redone if the branch has moved.
+    if ! test -v ROOTID; then
+        if test -v TEST_OPENSSL_BRANCH -a -f $HOME/root/openssl-is-${TEST_OPENSSL}; then
+            latest=`git ls-remote https://github.com/openssl/openssl refs/heads/${TEST_OPENSSL_BRANCH} | cut -f1`
+            : Got branch latest commit ${latest}
+            if grep -q ^${latest} $HOME/root/openssl-is-${TEST_OPENSSL}; then
+                : Cached repos already at ${latest}
+            else
+                : Forcing rebuild
+                rm -f $HOME/root/openssl-is-${TEST_OPENSSL}
+            fi
+        fi
+        test -f $HOME/root/openssl-is-${TEST_OPENSSL} || rm -rf $HOME/root/openssl
+    fi
+
+    if ! test -d $HOME/root/openssl; then
         mkdir -p build/openssl
         pushd build/openssl
-           if test -v TEST_OPENSSL3_BRANCH; then
-               git clone --depth=1 -b $TEST_OPENSSL3_BRANCH -q https://github.com/openssl/openssl openssl-${TEST_OPENSSL3}
+           if test -v TEST_OPENSSL_BRANCH; then
+               git clone --depth=1 -b $TEST_OPENSSL_BRANCH -q https://github.com/openssl/openssl openssl-${TEST_OPENSSL}
                # Build the commit named in the cache key, not whatever
                # the branch tip has become since it was resolved.
                if test -n "${OPENSSL_COMMIT-}"; then
-                   git -C openssl-${TEST_OPENSSL3} fetch -q --depth=1 origin ${OPENSSL_COMMIT}
-                   git -C openssl-${TEST_OPENSSL3} checkout -q ${OPENSSL_COMMIT}
+                   git -C openssl-${TEST_OPENSSL} fetch -q --depth=1 origin ${OPENSSL_COMMIT}
+                   git -C openssl-${TEST_OPENSSL} checkout -q ${OPENSSL_COMMIT}
                fi
            else
-               curl -L "https://github.com/openssl/openssl/releases/download/openssl-${TEST_OPENSSL3}/openssl-${TEST_OPENSSL3}.tar.gz" |
+               # Release tags were named OpenSSL_1_1_1w before 3.0.
+               case ${TEST_OPENSSL} in
+               1.*) tag=OpenSSL_`echo ${TEST_OPENSSL} | tr . _` ;;
+               *) tag=openssl-${TEST_OPENSSL} ;;
+               esac
+               curl -L "https://github.com/openssl/openssl/releases/download/${tag}/openssl-${TEST_OPENSSL}.tar.gz" |
                    tar -xzf -
            fi
-           cd openssl-${TEST_OPENSSL3}
-           # Build with RPATH so ./bin/openssl doesn't require $LD_LIBRARY_PATH
-           ./Configure --prefix=$HOME/root/openssl3 \
+           cd openssl-${TEST_OPENSSL}
+           # Build with RPATH so ./bin/openssl doesn't require $LD_LIBRARY_PATH.
+           # ./config, since before 3.0 ./Configure needs an explicit target.
+           ./config --prefix=$HOME/root/openssl \
                        shared no-tests ${OPENSSL_CONFIG} \
                        '-Wl,-rpath=$(LIBRPATH)'
            make $MFLAGS
            make install_sw
+           if ! test -v ROOTID; then
+               if test -d .git; then
+                   : Caching git commit hash:
+                   git rev-parse HEAD | tee $HOME/root/openssl-is-${TEST_OPENSSL}
+               else
+                   touch $HOME/root/openssl-is-${TEST_OPENSSL}
+               fi
+           fi
        popd
     fi
 
     # Point APR/APR-util at the installed version of OpenSSL.
     if test -v APU_VERSION; then
-        APU_CONFIG="${APU_CONFIG} --with-openssl=$HOME/root/openssl3"
+        APU_CONFIG="${APU_CONFIG} --with-openssl=$HOME/root/openssl"
     elif test -v APR_VERSION; then
-        APR_CONFIG="${APR_CONFIG} --with-openssl=$HOME/root/openssl3"
+        APR_CONFIG="${APR_CONFIG} --with-openssl=$HOME/root/openssl"
     else
-        : Non-system APR/APR-util must be used to build with OpenSSL 3 to avoid mismatch with system libraries
+        : Non-system APR/APR-util must be used to build with OpenSSL to avoid mismatch with system libraries
         exit 1
     fi
 fi
@@ -228,10 +236,7 @@ fi
 # Build the requested version of nghttp2 if it's not already installed
 # in the cached ~/root; the nghttp/h2load tools come from the package.
 if test -v TEST_NGHTTP2; then
-    if ! test -f $HOME/root/nghttp2-is-${TEST_NGHTTP2}; then
-        # Remove any previous install.
-        rm -rf $HOME/root/nghttp2
-
+    if ! test -d $HOME/root/nghttp2; then
         mkdir -p build/nghttp2
         pushd build/nghttp2
            curl -L "https://github.com/nghttp2/nghttp2/releases/download/v${TEST_NGHTTP2}/nghttp2-${TEST_NGHTTP2}.tar.xz" |
@@ -240,12 +245,53 @@ if test -v TEST_NGHTTP2; then
            ./configure --prefix=$HOME/root/nghttp2 --enable-lib-only
            make $MFLAGS
            make install
-           touch $HOME/root/nghttp2-is-${TEST_NGHTTP2}
         popd
     fi
 
     : -- Using nghttp2 from $HOME/root/nghttp2 --
     grep -H '^Version' $HOME/root/nghttp2/lib/pkgconfig/libnghttp2.pc
+fi
+
+# For --enable-http3, build ngtcp2 with its OpenSSL crypto helper,
+# if it's not already installed in the cached ~/root. The packaged one
+# is too old for mod_http3.
+if [[ ${CONFIG-} == *--enable-http3* ]]; then
+    if ! test -d $HOME/root/ngtcp2; then
+        mkdir -p build/ngtcp2
+        pushd build/ngtcp2
+           curl -L "https://github.com/ngtcp2/ngtcp2/releases/download/v${NGTCP2_VERSION}/ngtcp2-${NGTCP2_VERSION}.tar.xz" |
+               tar -xJf -
+           cd ngtcp2-${NGTCP2_VERSION}
+           ./configure --prefix=$HOME/root/ngtcp2 --enable-lib-only --with-openssl
+           make $MFLAGS
+           make install
+        popd
+    fi
+
+    : -- Using ngtcp2 from $HOME/root/ngtcp2 --
+    grep -H '^Version' $HOME/root/ngtcp2/lib/pkgconfig/libngtcp2_crypto_ossl.pc
+fi
+
+# Build the requested version of curl with HTTP/3, over OpenSSL's QUIC
+# stack and the packaged libnghttp3, if it's not already installed in
+# the cached ~/root. The packaged curl has no HTTP/3.
+if test -v TEST_CURL_H3; then
+    if ! test -x $HOME/root/curl/bin/curl; then
+        mkdir -p build/curl
+        pushd build/curl
+           curl -L "https://curl.se/download/curl-${TEST_CURL_H3}.tar.xz" |
+               tar -xJf -
+           cd curl-${TEST_CURL_H3}
+           ./configure --prefix=$HOME/root/curl --disable-shared \
+                       --with-openssl --with-openssl-quic --with-nghttp3 \
+                       --without-libpsl
+           make $MFLAGS
+           make install
+        popd
+    fi
+
+    : -- Using curl from $HOME/root/curl --
+    $HOME/root/curl/bin/curl -V
 fi
 
 if test -v APR_VERSION; then

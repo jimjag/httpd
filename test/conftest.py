@@ -2,7 +2,6 @@ import sys
 import os
 import re
 import subprocess
-import warnings
 
 import pytest
 
@@ -10,27 +9,38 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 
 from pyhttpd.env import HttpdTestEnv
 
+# Imported here before pytest_plugins loads it, so register it for
+# assertion rewriting first, to avoid PytestAssertRewriteWarning.
+pytest.register_assert_rewrite("pyhttpd.depends")
+from pyhttpd.depends import apply_gate, strict_optional_enabled
 
-def pytest_ignore_collect(collection_path, config):
-    if "pytest_suite" in collection_path.parts:
-        return True
+# pyhttpd.plugin registers the command-line options of both suites;
+# pyhttpd.gating evaluates the need_* and backport markers of both;
+# pyhttpd.depends provides --strict-optional and the needs_dependency marker.
+# pytest_plugins is only honoured in the rootdir conftest, and there is no
+# pytest.ini in this tree, so this is the only place it can be declared.
+pytest_plugins = ["pyhttpd.plugin", "pyhttpd.gating", "pyhttpd.depends",
+                  "pyhttpd.classic_errorlog",
+                  # pytester: the self-tests of these plugins
+                  "pytester"]
+
+# Everything below test/modules/ drives a real httpd.
+MODULES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modules')
+
 
 def pytest_report_header(config, start_path):
-    env = HttpdTestEnv()
-    return f"[apache httpd: {env.get_httpd_version()}, mpm: {env.mpm_module}, {env.prefix}]"
-
-def pytest_addoption(parser):
-    parser.addoption("--repeat", action="store", type=int, default=1,
-                     help='Number of times to repeat each test')
-    parser.addoption("--all", action="store_true")
-    parser.addoption("--archive", action="store", default=None,
-                     help='Archive the server dir after each test package '
-                          'to the specified folder')
-    parser.addoption("--httpd", action="store", default=None,
-                     help="path to httpd binary (used to derive prefix, version, etc.)")
-    parser.addoption("--conf", action="store", default=None,
-                     help="path to the installed httpd.conf (for LoadModule discovery "
-                     "when apxs is not available, e.g. on Windows)")
+    from pyhttpd.build import config_ini_path, resolve_build
+    info = resolve_build(config)
+    if info is None:
+        # no httpd found (neither --apxs/--httpd nor a build generated
+        # config.ini); nothing to report
+        return None
+    line = f"[apache httpd: {info.version_str}, mpm: {info.mpm}, {info.prefix}, via {info.source}]"
+    if info.source != "config.ini" and config_ini_path().is_file():
+        # the modules/ suite tests the same httpd, but still takes its
+        # ports and client tools from here
+        line += f"\n[modules/ suite: ports and clients from {config_ini_path()}]"
+    return line
 
 
 def _generate_config_ini(config):
@@ -132,9 +142,45 @@ test_src_dir = {test_dir}
 
 
 def pytest_configure(config):
+    if config.getoption("--clean-modules", default=False):
+        # the c-modules/ of pytest_suite are cleaned by its own fixture
+        from pyhttpd.cmodules import clean_test_modules
+        clean_test_modules(os.path.dirname(os.path.abspath(__file__)))
     httpd_opt = config.getoption("--httpd", default=None)
-    if httpd_opt and sys.platform == "win32":
+    if not httpd_opt:
+        return
+    ini_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "pyhttpd", "config.ini")
+    if not os.path.isfile(ini_path):
+        # No build-generated config.ini (typical on Windows without
+        # autoconf) — generate one from --httpd/--conf so the framework
+        # has something to read.
         _generate_config_ini(config)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Gate the integration suite on the clients the framework itself needs.
+
+    curl is not an optional dependency of the individual test cases that
+    call curl_get(): apache_restart() proves the server came up with
+    is_live(), and is_live() is a curl request. Without curl every test
+    that starts an httpd dies in fixture setup, which is neither a skip nor
+    a useful failure. So it is gated once here for the whole of
+    test/modules/ rather than test by test.
+
+    Tests outside that directory - the strict-mode self-test - run no httpd
+    and are left alone.
+    """
+    if not any(str(item.path).startswith(MODULES_DIR) for item in items):
+        return
+    env = HttpdTestEnv()
+    if env.has_curl():
+        return
+    missing = [("curl", "no curl available", f"tried to run {env.curl}")]
+    strict = strict_optional_enabled(config)
+    for item in items:
+        if str(item.path).startswith(MODULES_DIR):
+            apply_gate(item, missing, strict)
 
 
 def pytest_generate_tests(metafunc):
@@ -142,49 +188,3 @@ def pytest_generate_tests(metafunc):
         count = int(metafunc.config.getoption("repeat"))
         metafunc.fixturenames.append('tmp_ct')
         metafunc.parametrize('repeat', range(count))
-
-
-@pytest.fixture(autouse=True, scope="function")
-def _function_scope(env, request):
-    env.set_current_test_name(request.node.name)
-    yield
-    env.check_error_log()
-    archive_dir = request.config.getoption("--archive")
-    if archive_dir:
-        fspath = str(request.fspath)
-        if 'modules/' in fspath:
-            package_name = fspath.split('modules/')[1].split('/')[0]
-            env.archive_test_conf(request.node.name, package_name, archive_dir)
-    env.set_current_test_name(None)
-
-
-@pytest.fixture(autouse=True, scope="module")
-def _module_scope(env):
-    yield
-    env.check_error_log()
-
-
-@pytest.fixture(autouse=True, scope="package")
-def _package_scope(env, request):
-    env.httpd_error_log.clear_ignored_matches()
-    env.httpd_error_log.clear_ignored_lognos()
-    if sys.platform == "win32":
-        env.httpd_error_log.add_ignored_lognos([
-            "AH00098",
-            "AH10373",
-            "AH00336",
-            "AH00337",
-            "AH00338",
-            "AH00341",
-        ])
-    yield
-    assert env.apache_stop() == 0
-    env.check_error_log()
-    archive_dir = request.config.getoption("--archive")
-    if archive_dir == "":
-        warnings.warn("--archive option was empty, skipping archiving")
-    if archive_dir:
-        fspath = str(request.fspath)
-        parts = fspath.split('modules/')
-        package_name = parts[1].split('/')[0]
-        env.archive_logs(package_name, archive_dir)

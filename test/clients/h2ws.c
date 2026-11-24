@@ -814,6 +814,14 @@ static void h2_session_run(struct h2_session *session)
 
 static void h2_session_close(struct h2_session *session)
 {
+    if (session->ngh2) {
+        nghttp2_session_del(session->ngh2);
+        session->ngh2 = NULL;
+    }
+    if (session->fd >= 0) {
+        close(session->fd);
+        session->fd = -1;
+    }
     log_infof(cmd, "closed session to %s:%u",
               session->connect_host, session->connect_port);
 }
@@ -965,7 +973,7 @@ int main(int argc, char *argv[])
     struct uri uri;
     struct h2_session session;
     struct ws_stream *stream;
-    char ch;
+    int ch;
 
     cmd = argv[0];
     while((ch = getopt(argc, argv, "c:vh")) != -1) {
@@ -1118,5 +1126,11 @@ int main(int argc, char *argv[])
 
     h2_session_run(&session);
     h2_session_close(&session);
+    free(stream);
+    free((void *)uri.host);
+    if (uri.authority != uri.host)
+        free((void *)uri.authority);
+    free((void *)uri.path);
+    free((void *)host);
     return 0;
 }

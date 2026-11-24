@@ -10,6 +10,7 @@ on:
       - README*
       - '**.md'
       - changes-entries/*
+      - .asf.yaml
     tags:
       - 2.*
   pull_request:
@@ -21,14 +22,13 @@ on:
       - README*
       - '**.md'
       - changes-entries/*
+      - .asf.yaml
 
 permissions:
   contents: read
 
 env:
   CFLAGS: "-g"
-  # This will need updating as the ubuntu-latest image changes:
-  PHP_FPM: "/usr/sbin/php-fpm8.3"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -144,6 +144,32 @@ jobs:
               TEST_PYTEST=1
               TEST_MD=1
           # -------------------------------------------------------------------------
+          # As above, on a 64-bit ARM runner.
+          - name: Python pytest test suites, 64-bit ARM
+            config: --enable-mods-shared=reallyall --with-mpm=event --enable-mpms-shared=all
+            os: ubuntu-24.04-arm
+            pkgs: nghttp2-client
+            env: |
+              APR_VERSION=1.7.6
+              APU_VERSION=1.6.5
+              APU_CONFIG="--with-crypto"
+              NO_TEST_FRAMEWORK=1
+              TEST_PYTEST=1
+              TEST_MD=1
+          # -------------------------------------------------------------------------
+          # The classic pytest suite against the motorz MPM (the other suites
+          # assume event).
+          - name: Python pytest_suite, motorz MPM
+            config: --enable-mods-shared=reallyall --with-mpm=motorz --enable-mpms-shared=all
+            pkgs: nghttp2-client
+            env: |
+              APR_VERSION=1.7.6
+              APU_VERSION=1.6.5
+              APU_CONFIG="--with-crypto"
+              NO_TEST_FRAMEWORK=1
+              TEST_PYTEST=1
+              PYTEST_ARGS=test_build.py pytest_suite/tests
+          # -------------------------------------------------------------------------
           # Test against a newer nghttp2 than in the Ubuntu images.
           - name: mod_http2 w/nghttp2 1.68.0
             config: --enable-mods-shared=reallyall --enable-maintainer-mode --with-mpm=event
@@ -152,8 +178,22 @@ jobs:
               TEST_NGHTTP2=1.68.0
               NO_TEST_FRAMEWORK=1
               TEST_PYTEST=1
-              PYHTTPD_TARGETS=modules/http2
-              PYTEST_ARGS=--only=pyhttpd
+              PYTEST_ARGS=modules/http2
+          # -------------------------------------------------------------------------
+          # mod_http3 needs OpenSSL >= 3.5 and libnghttp3, which Ubuntu
+          # 26.04 has, and ngtcp2 >= 1.22.1, which it has not. Its curl
+          # has no HTTP/3. ngtcp2 and curl are built from source.
+          # Strict mode turns a skip for a missing dependency into a failure.
+          - name: mod_http3
+            os: ubuntu-26.04
+            config: --enable-mods-shared=reallyall --enable-maintainer-mode --with-mpm=event --enable-http3
+            pkgs: libnghttp3-dev
+            env: |
+              TEST_CURL_H3=8.18.0
+              NO_TEST_FRAMEWORK=1
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/http3
+              PYHTTPD_STRICT_OPTIONAL=1
           # -------------------------------------------------------------------------
           - name: Default
             # Check the defaults expected for a default build on Linux.
@@ -201,11 +241,13 @@ jobs:
             env: |
               TEST_ARGS=-order=random
           # -------------------------------------------------------------------------
-          - name: GCC 12 maintainer-mode w/-Werror, install + VPATH
+          - name: GCC 15 maintainer-mode w/-Werror, install + VPATH
+            os: ubuntu-26.04
             config: --enable-mods-shared=reallyall --enable-maintainer-mode
             notest-cflags: -Werror -O2
+            pkgs: gcc-15
             env: |
-              CC=gcc-12
+              CC=gcc-15
               TEST_VPATH=1
               TEST_INSTALL=1
               SKIP_TESTING=1
@@ -306,8 +348,7 @@ jobs:
               TEST_INSTALL=1
               NO_TEST_FRAMEWORK=1
               TEST_PYTEST=1
-              PYHTTPD_TARGETS=modules/arch
-              PYTEST_ARGS=--only=pyhttpd
+              PYTEST_ARGS=modules/arch
           # -------------------------------------------------------------------------
           ### TODO if: *condition_not_24x
           ### TODO: Fails because :i386 packages are not being found.
@@ -325,58 +366,95 @@ jobs:
           #     APU_VERSION=1.6.5
           # APU_CONFIG="--with-crypto --with-ldap"
           # -------------------------------------------------------------------------
+          # mod_md is built but not tested: its tests need pebble, and
+          # the system libcurl it uses links against OpenSSL 3.
+          - name: OpenSSL 1.1.1 -Werror
+            config: --enable-mods-shared=most --enable-maintainer-mode --enable-md --disable-http2 --disable-ldap --disable-crypto
+            notest-cflags: -Werror -O2
+            env: |
+              TEST_OPENSSL=1.1.1w
+              APR_VERSION=1.7.6
+              APU_VERSION=1.6.5
+              APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
+          # -------------------------------------------------------------------------
           - name: OpenSSL 3.0 LTS
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
             config-no-output: HAVE_NGHTTP2 HAVE_CURL
             env: |
-              TEST_OPENSSL3=3.0.22
+              TEST_OPENSSL=3.0.22
               APR_VERSION=1.7.6
               APU_VERSION=1.6.5
               APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.4 -Werror
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
             notest-cflags: -Werror -O2
             env: |
-              TEST_OPENSSL3=3.4.7
+              TEST_OPENSSL=3.4.8
               APR_VERSION=1.7.6
               APU_VERSION=1.6.5
               APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.4 no-engine
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
             env: |
-              TEST_OPENSSL3=3.4.7
+              TEST_OPENSSL=3.4.8
               OPENSSL_CONFIG=no-engine
               APR_VERSION=1.7.6
               APU_VERSION=1.6.5
               APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
           # -------------------------------------------------------------------------
           - name: OpenSSL 3.5 no-engine -Werror
             config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
             notest-cflags: -Werror -O2
             env: |
-              TEST_OPENSSL3=3.5.8
+              TEST_OPENSSL=3.5.9
               OPENSSL_CONFIG=no-engine
               APR_VERSION=1.7.6
               APU_VERSION=1.6.5
               APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
           # -------------------------------------------------------------------------
           - name: OpenSSL 4.0
-            config: --enable-mods-shared=most --enable-maintainer-mode --disable-md --disable-http2 --disable-ldap --disable-crypto
+            config: --enable-mods-shared=most --enable-maintainer-mode --enable-md --disable-http2 --disable-ldap --disable-crypto
             notest-cflags: -Werror -O2
             env: |
-              TEST_OPENSSL3=4.0.2
+              TEST_OPENSSL=4.0.3
               OPENSSL_CONFIG=
               APR_VERSION=1.7.6
               APU_VERSION=1.6.5
               APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
+          # -------------------------------------------------------------------------
+          - name: OpenSSL 4.1
+            config: --enable-mods-shared=most --enable-maintainer-mode --enable-md --disable-http2 --disable-ldap --disable-crypto
+            notest-cflags: -Werror -O2
+            env: |
+              TEST_OPENSSL=4.1.0
+              OPENSSL_CONFIG=
+              APR_VERSION=1.7.6
+              APU_VERSION=1.6.5
+              APU_CONFIG="--without-crypto"
+              TEST_PYTEST=1
+              PYTEST_ARGS=modules/ssl
           # -------------------------------------------------------------------------
     runs-on: ${{ matrix.os == '' && 'ubuntu-latest' || matrix.os }}
     timeout-minutes: 30
     env:
       NOTEST_CFLAGS: ${{ matrix.notest-cflags }}
       CONFIG: ${{ matrix.config }}
+      # Built from source for a job with --enable-http3.
+      NGTCP2_VERSION: 1.25.0
     name: ${{ matrix.name }}
     steps:
     # JOBID names the artifacts uploaded on failure; see "Artifacts" in
@@ -392,6 +470,17 @@ jobs:
         # CPUs the runner has, unless the matrix entry set it already
         # (the ap_expr job sets it empty on purpose).
         grep -q '^MFLAGS=' $GITHUB_ENV || echo "MFLAGS=-j`nproc`" >> $GITHUB_ENV
+        # Use whichever php-fpm the runner image ships, so this doesn't
+        # break when the image moves to a new PHP version, unless the
+        # matrix entry set PHP_FPM already.
+        if ! grep -q '^PHP_FPM=' $GITHUB_ENV; then
+          PHP_FPM=`ls -1 /usr/sbin/php-fpm* 2>/dev/null | sort -V | tail -n1`
+          if test -z "$PHP_FPM"; then
+            echo "::error::No php-fpm found in /usr/sbin"
+            exit 1
+          fi
+          echo "PHP_FPM=$PHP_FPM" >> $GITHUB_ENV
+        fi
         echo JOBID=`printf '%s-%s' "${{ strategy.job-index }}" "$MATRIX_NAME" \
            | tr -cs '[:alnum:]._-' '-'` >> $GITHUB_ENV
     - name: apt refresh
@@ -404,7 +493,7 @@ jobs:
       run: sudo apt-get install -o Acquire::Retries=5
                     libtool-bin libapr1-dev libaprutil1-dev
                     liblua5.3-dev libbrotli-dev libcurl4-openssl-dev
-                    libnghttp2-dev libjansson-dev libpcre2-dev
+                    libnghttp2-dev libjansson-dev libmagic-dev libpcre2-dev
                     ${{ ! ( env.SKIP_TESTING || env.NO_TEST_FRAMEWORK ) && 'cpanminus perl-doc' || '' }}
                     ${{ ! env.SKIP_TESTING && 'gdb' || '' }}
                     libsasl2-dev curl pipx ${{ matrix.pkgs }} check
@@ -431,7 +520,7 @@ jobs:
       if: env.ROOTID != ''
       with:
         path: ~/root
-        key: cache-libs-1-${{ env.IMAGEOS }}-${{ runner.arch }}-${{ env.ROOTID }}
+        key: cache-libs-2-${{ env.IMAGEOS }}-${{ runner.arch }}-${{ env.ROOTID }}
     # ~/perl5 does not vary by job: the module list is fixed and the
     # modules are always built with CC=gcc.  It varies only by the perl
     # ABI, which $PERLID identifies, and by the module list itself, so
@@ -493,3 +582,4 @@ jobs:
           test/perl-framework/t/logs/error_log
           test/pytest_suite/t/logs/error_log
           test/gen/apache/logs/error_log
+          test/gen/failed-tests/**

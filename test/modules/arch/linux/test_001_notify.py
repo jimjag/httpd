@@ -2,15 +2,19 @@ import time
 
 import pytest
 
+from pyhttpd.backport import not_backported
+
 from pyhttpd.conf import HttpdConf
 
 
+@not_backported("r1937596-r1937647", "mod_systemd watchdog, notify and socket activation")
 class TestSystemdNotify:
     """The service notifications mod_systemd sends over $NOTIFY_SOCKET
     across the server lifecycle."""
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         conf = HttpdConf(env)
         conf.add_vhost_test1()
         conf.install()

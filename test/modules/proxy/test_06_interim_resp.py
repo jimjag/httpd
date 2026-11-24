@@ -70,7 +70,8 @@ class TestStatusLineCR:
     """
 
     @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env):
+    @classmethod
+    def _class_scope(cls, env):
         conf = HttpdConf(env)
         conf.start_vhost(domains=[f"test1.{env.http_tld}"], port=env.http_port,
                          doc_root="htdocs", with_ssl=False)
@@ -107,8 +108,10 @@ class TestStatusLineCR:
             f"bare CR in status line: {status_line!r}"
         assert b"X-Foobar" not in status_line, \
             f"attacker text in status line: {status_line!r}"
+        # Prevent 'f-string expression part cannot include a backslash'
+        hide_backslash = b'\\r\\n\\r\\n'
         assert b"X-Foobar" not in raw.split(b"\r\n\r\n")[0], \
-            f"injected header in response headers: {raw.split(b'\\r\\n\\r\\n')[0]!r}"
+            f"injected header in response headers: {raw.split(hide_backslash)[0]!r}"
 
         env.httpd_error_log.ignore_recent(
             lognos=["AH00957", "AH01106", "AH01114"]

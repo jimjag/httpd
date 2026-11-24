@@ -4,6 +4,7 @@ supported value), AuthDigestNonceLifetime 300, no AuthDigestDomain).
 """
 
 from . import digest_client as dc
+from pyhttpd.backport import not_backported
 from .env import AAATestEnv
 
 
@@ -167,7 +168,7 @@ class TestDigestChallengeResponse:
             opaque="not-a-hex-number")
         r = env.curl_get(self.url(env), options=["-H", f"Authorization: {auth}"])
         assert r.response["status"] == 401
-        env.httpd_error_log.ignore_recent(lognos=["AH01787"])
+        env.httpd_error_log.ignore_recent(lognos=["AH01782", "AH01787"])
 
     def test_digest_014_tampered_response_hash(self, env):
         challenge = self.challenge(env)
@@ -177,4 +178,42 @@ class TestDigestChallengeResponse:
             response="0" * 32)
         r = env.curl_get(self.url(env), options=["-H", f"Authorization: {auth}"])
         assert r.response["status"] == 401
+        env.httpd_error_log.ignore_recent(lognos=["AH01794"])
+
+    @not_backported("r1939034", "rejecting an Authorization uri which fails to unescape")
+    def test_digest_015_uri_bad_escaping_rejected(self, env):
+        # The Authorization uri= is compared against the request-target after
+        # %-decoding both. A uri= that fails to decode -- an encoded NUL or
+        # slash -- must be rejected, not silently truncated at the bad octet
+        # so that its prefix matches the request-target.
+        challenge = self.challenge(env)
+        for bad_uri in ["/digest/default/secret.txt%00ignored",
+                        "/digest/default%2fsecret.txt"]:
+            auth = dc.build_authorization(
+                AAATestEnv.DIGEST_USER, challenge, AAATestEnv.DIGEST_PASSWORD,
+                method="GET", uri=bad_uri)
+            r = env.curl_get(self.url(env),
+                             options=["-H", f"Authorization: {auth}"])
+            assert r.response["status"] == 400, \
+                f"uri={bad_uri!r} was not rejected"
+        env.httpd_error_log.ignore_recent(lognos=["AH01783"])
+
+    def test_digest_016_wrong_password_unknown_opaque_not_stale(self, env):
+        # A wrong password is wrong whatever opaque the request quotes. An
+        # opaque this server has no entry for (never issued, or garbage
+        # collected) used to force stale=true onto the challenge, so the
+        # client retried silently with the password it had just been told
+        # was wrong -- once -- before being re-prompted.
+        challenge = self.challenge(env, location="nccheck")
+        auth = dc.build_authorization(
+            AAATestEnv.DIGEST_USER, challenge, "not-the-password",
+            method="GET", uri="/digest/nccheck/secret.txt",
+            opaque="deadbeef")
+        r = env.curl_get(self.url(env, location="nccheck"),
+                         options=["-H", f"Authorization: {auth}"])
+        assert r.response["status"] == 401
+        fresh = dc.DigestChallenge.parse(r.response["header"]["www-authenticate"])
+        assert fresh.stale is False
+        # ...though the unknown opaque is still replaced by one of ours.
+        assert fresh.opaque not in (None, "deadbeef")
         env.httpd_error_log.ignore_recent(lognos=["AH01794"])
